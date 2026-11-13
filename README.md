@@ -39,7 +39,9 @@ Greasemonkey) is loaded.
   (up to 10×) and drag to pan, seek bar, loop, fit/fill, fullscreen.
 - **Post actions** — vote, save, hide, follow, share, crosspost, report, and read the
   comments in a side panel without leaving the lightbox.
-- Remembers which pages were in gallery mode and which item you were viewing, per tab.
+- Remembers gallery view per subreddit and multireddit: open it once and that feed opens
+  as a gallery from then on, in any tab and under any sort, until you exit gallery view
+  there. Other pages, and the item you were viewing, are remembered per tab.
 - Checks for a newer version (at most every 15 minutes) and offers it.
 
 ## Keyboard

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Gallery View
 // @namespace    https://violentmonkey.github.io/
-// @version      1.35.1
+// @version      1.36.0
 // @description  Show any Reddit page (subreddit, user, search, custom feed / multireddit, front page) as a media gallery with infinite scroll and a lightbox.
 // @icon         https://www.redditstatic.com/shreddit/assets/favicon/192x192.png
 // @homepageURL  https://github.com/realteamnet/RedditGallery
@@ -134,6 +134,19 @@
       del(k) { const set = read(); if (set.delete(k)) write(set); },
     };
   })();
+
+  // Subreddits and multireddits you put in gallery view stay that way: saved for good, in
+  // every tab and under every sort, until you leave gallery view there. Read fresh each time,
+  // because another tab may have changed it.
+  function feedKey() {
+    const m = /^\/(?:(r\/[^/]+)|(?:user|u)\/([^/]+\/m\/[^/]+))(?:\/(?:hot|new|top|rising|controversial|best))?\/?$/i.exec(location.pathname);
+    return m ? (m[1] || 'user/' + m[2]).toLowerCase() : '';
+  }
+  const feedPages = {
+    has: (k) => !!k && store.get('galleryFeeds', []).includes(k),
+    add(k) { if (k) store.set('galleryFeeds', [...store.get('galleryFeeds', []).filter((x) => x !== k), k].slice(-500)); },
+    del(k) { if (this.has(k)) store.set('galleryFeeds', store.get('galleryFeeds', []).filter((x) => x !== k)); },
+  };
 
   // Which item the lightbox was showing on each page, so a reload picks it up again.
   const tabFocus = (() => {
@@ -2347,11 +2360,17 @@ button.chip{font-weight:500}
 
   function closeGallery() {
     tabPages.del(pageKey());
+    feedPages.del(feedKey());
     tabFocus.del(pageKey());
     hideGallery();
   }
 
-  const toggle = () => (app.classList.contains('open') ? closeGallery() : openGallery());
+  // Only a deliberate open is remembered for the feed, not one that auto-open made.
+  function toggle() {
+    if (app.classList.contains('open')) return closeGallery();
+    feedPages.add(feedKey());
+    openGallery();
+  }
 
   document.addEventListener('keydown', (e) => {
     if (e.altKey && e.code === 'KeyG') { e.preventDefault(); toggle(); return; }
@@ -2476,7 +2495,7 @@ button.chip{font-weight:500}
     try { history.replaceState(history.state, '', location.pathname + location.search); } catch { /* ignore */ }
   }
 
-  const wantGallery = () => tabPages.has(pageKey()) || (cfg.autoOpen && LISTABLE.test(location.pathname));
+  const wantGallery = () => tabPages.has(pageKey()) || feedPages.has(feedKey()) || (cfg.autoOpen && LISTABLE.test(location.pathname));
 
   // Reddit navigates without reloading, so watch for URL changes (including Back/Forward).
   let lastHref = location.href, lastPath = location.pathname, lastKey = pageKey();
