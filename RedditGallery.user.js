@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Gallery View
 // @namespace    https://violentmonkey.github.io/
-// @version      1.36.0
+// @version      1.36.1
 // @description  Show any Reddit page (subreddit, user, search, custom feed / multireddit, front page) as a media gallery with infinite scroll and a lightbox.
 // @icon         https://www.redditstatic.com/shreddit/assets/favicon/192x192.png
 // @homepageURL  https://github.com/realteamnet/RedditGallery
@@ -2498,21 +2498,21 @@ button.chip{font-weight:500}
   const wantGallery = () => tabPages.has(pageKey()) || feedPages.has(feedKey()) || (cfg.autoOpen && LISTABLE.test(location.pathname));
 
   // Reddit navigates without reloading, so watch for URL changes (including Back/Forward).
-  let lastHref = location.href, lastPath = location.pathname, lastKey = pageKey();
-  setInterval(() => {
+  let lastHref = location.href, lastKey = pageKey();
+  function navCheck() {
     if (location.href === lastHref) return;
     lastHref = location.href;
     const key = pageKey();
-    const pathChanged = location.pathname !== lastPath;
-    const keyChanged = key !== lastKey;
-    lastPath = location.pathname;
+    const keyChanged = key !== lastKey;              // pageKey ignores tracking params Reddit adds to the same page
     lastKey = key;
     const isOpen = app.classList.contains('open');
     if (wantGallery()) { if (!isOpen || keyChanged) openGallery(true); }
-    else if (isOpen && pathChanged) hideGallery();   // went Back/Forward to a page that isn't in gallery mode
+    else if (isOpen && keyChanged) hideGallery();    // went Back/Forward to a page that isn't in gallery mode
     dropInline();                                    // Reddit rebuilds the bar on navigation
     mountInline(true);
-  }, 600);
+  }
+  setInterval(navCheck, 600);
+  addEventListener('popstate', navCheck);            // Back/Forward: no need to wait for the poll
 
   let mountTick = 0;
   setInterval(() => { if (!document.hidden && !app.classList.contains('open')) mountInline(++mountTick % 4 === 0); }, 1200);   // look inside shadow roots now and then
