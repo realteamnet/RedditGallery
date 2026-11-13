@@ -21,6 +21,7 @@ Greasemonkey) is loaded.
 
 - Click **Gallery** next to Reddit's sort bar, the corner button, or press **Alt+G**.
 - **Exit gallery** (or Esc) returns to Reddit where you left off.
+- The browser's Back button does not leave gallery view; exit the gallery first.
 - Turn on **Auto-open** to start every listing page in gallery view.
 
 ## Features

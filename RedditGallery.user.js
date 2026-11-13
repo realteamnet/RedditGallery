@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Gallery View
 // @namespace    https://violentmonkey.github.io/
-// @version      1.36.1
+// @version      1.37.0
 // @description  Show any Reddit page (subreddit, user, search, custom feed / multireddit, front page) as a media gallery with infinite scroll and a lightbox.
 // @icon         https://www.redditstatic.com/shreddit/assets/favicon/192x192.png
 // @homepageURL  https://github.com/realteamnet/RedditGallery
@@ -2334,6 +2334,7 @@ button.chip{font-weight:500}
     document.documentElement.style.overflow = 'hidden';
     coverPage(true);
     tabPages.add(pageKey());
+    pushGuard();
     if (force || S.href !== pageKey()) {
       S.href = pageKey();
       const s = sourceFromLocation();
@@ -2363,6 +2364,20 @@ button.chip{font-weight:500}
     feedPages.del(feedKey());
     tabFocus.del(pageKey());
     hideGallery();
+    if (onGuard()) history.back();                   // drop the guard entry, so the next Back really leaves
+  }
+
+  // While the gallery is open, Back must not leave the page. The open gallery sits on a
+  // history entry of its own (same address, marked in its state); a Back off that entry
+  // lands on the same page underneath, and the entry is put straight back.
+  // Browsers skip such an entry on Back until the page has been clicked, tapped or typed in.
+  let guardKey = '';
+  const onGuard = () => !!history.state?.rgGuard;
+  function pushGuard() {
+    guardKey = pageKey();
+    if (onGuard()) return;                           // a reload lands on the guard entry again
+    const state = history.state && typeof history.state === 'object' ? history.state : null;
+    try { history.pushState({ ...state, rgGuard: true }, '', location.href); } catch { /* ignore */ }
   }
 
   // Only a deliberate open is remembered for the feed, not one that auto-open made.
@@ -2512,7 +2527,12 @@ button.chip{font-weight:500}
     mountInline(true);
   }
   setInterval(navCheck, 600);
-  addEventListener('popstate', navCheck);            // Back/Forward: no need to wait for the poll
+  addEventListener('popstate', () => {               // Back/Forward: no need to wait for the poll
+    // One step back from an open gallery is still the same page: stay in the gallery.
+    // A jump to another page (history menu) is a real navigation and goes through navCheck.
+    if (app.classList.contains('open') && !onGuard() && pageKey() === guardKey) pushGuard();
+    else navCheck();
+  });
 
   let mountTick = 0;
   setInterval(() => { if (!document.hidden && !app.classList.contains('open')) mountInline(++mountTick % 4 === 0); }, 1200);   // look inside shadow roots now and then
