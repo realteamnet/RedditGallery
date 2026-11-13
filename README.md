@@ -11,8 +11,14 @@ Greasemonkey) is loaded.
 
 ## Install
 
-1. Install a userscript manager: [Violentmonkey](https://violentmonkey.github.io/)
-   (recommended), Tampermonkey or Greasemonkey.
+1. Install Violentmonkey for your browser:
+   - [Firefox](https://addons.mozilla.org/firefox/addon/violentmonkey/)
+   - [Edge](https://microsoftedge.microsoft.com/addons/detail/eeagobfjdenkkddmbclomhiblgggliao)
+   - [Chrome](https://chrome.google.com/webstore/detail/violent-monkey/jinjaccalgkegednnccohejagnlnfdag)
+     (also Brave, Vivaldi, Opera and other Chromium browsers)
+   - [Other browsers and beta versions](https://violentmonkey.github.io/get-it/)
+
+   Tampermonkey and Greasemonkey should also work.
 2. Click **[Install](https://raw.githubusercontent.com/realteamnet/RedditGallery/main/RedditGallery.user.js)**:
    the manager opens its install page.
 3. Confirm. Updates come automatically from the same URL.
