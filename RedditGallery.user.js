@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Gallery View
 // @namespace    https://violentmonkey.github.io/
-// @version      1.33.0
+// @version      1.34.0
 // @description  Show any Reddit page (subreddit, user, search, custom feed / multireddit, front page) as a media gallery with infinite scroll and a lightbox.
 // @icon         https://www.redditstatic.com/shreddit/assets/favicon/192x192.png
 // @homepageURL  https://github.com/realteamnet/RedditGallery
@@ -240,6 +240,7 @@
       const i = new Image();
       i.referrerPolicy = 'no-referrer';
       i.alt = a.name || '';
+      i.loading = 'lazy';
       i.src = src;
       wrap.append(i);
     }
@@ -503,8 +504,8 @@ button.chip{font-weight:500}
 .meta .go{pointer-events:auto;cursor:pointer}
 .meta .go:hover{color:var(--acc);text-decoration:underline}
 .cap .row a.go:hover{color:var(--acc)}
-.badge{position:absolute;top:8px;right:8px;padding:3px 8px;border-radius:999px;background:rgba(14,14,16,.6);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);color:#f3f1ec;font-size:10.5px;font-weight:700;letter-spacing:.04em;line-height:1.3}
-.tnav{position:absolute;top:50%;transform:translateY(-50%);width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(14,14,16,.55);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);color:#f3f1ec;font-size:22px;line-height:1;padding-bottom:2px;cursor:pointer;opacity:0;transition:opacity .15s,background .15s;user-select:none}
+.badge{position:absolute;top:8px;right:8px;padding:3px 8px;border-radius:999px;background:rgba(14,14,16,.74);color:#f3f1ec;font-size:10.5px;font-weight:700;letter-spacing:.04em;line-height:1.3}
+.tnav{position:absolute;top:50%;transform:translateY(-50%);width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(14,14,16,.7);color:#f3f1ec;font-size:22px;line-height:1;padding-bottom:2px;cursor:pointer;opacity:0;transition:opacity .15s,background .15s;user-select:none}
 .tnav:hover{background:var(--acc);color:var(--acc-ink)}
 .tprev{left:8px}
 .tnext{right:8px}
@@ -1092,15 +1093,28 @@ button.chip{font-weight:500}
   const active = () => app.classList.contains('open') && !lb.classList.contains('open') && !document.hidden;
   const canAutoplay = (n) => cfg.autoplayAll && n._vis && !(cfg.blurNsfw && n.classList.contains('nsfw'));
 
+  // Starting a video costs a request and a decoder, so a tile has to stay on screen for a
+  // moment first: tiles that only fly past during a fast scroll never start.
   const io = new IntersectionObserver((entries) => {
     for (const en of entries) {
       const t = en.target;
       t._vis = en.isIntersecting;
       if (!t._vid) continue;
-      if (en.isIntersecting) { if (canAutoplay(t)) t._play(); }
-      else { t._hover = false; t._stop(); }
+      clearTimeout(t._due);
+      if (!en.isIntersecting) { t._hover = false; t._stop(); }
+      else if (cfg.autoplayAll) t._due = setTimeout(() => { if (t.isConnected && canAutoplay(t)) t._play(); }, 150);
     }
   }, { root: scroller });
+
+  // Tile pictures load one and a half screens ahead of the scroll. The browser's own lazy
+  // loading does not reliably look ahead inside a nested scroller, so pictures popped in late.
+  const lazy = new IntersectionObserver((entries) => {
+    for (const en of entries) {
+      if (!en.isIntersecting) continue;
+      lazy.unobserve(en.target);
+      en.target._load();
+    }
+  }, { root: scroller, rootMargin: '150% 0px' });
 
   function syncAutoplay() {
     for (const t of S.tiles) {
@@ -1139,14 +1153,14 @@ button.chip{font-weight:500}
     let base;
     if (it.thumb || it.type === 'image' || n > 1) {
       base = new Image();
-      base.loading = 'lazy';
       base.decoding = 'async';
       base.referrerPolicy = 'no-referrer';
       base.alt = '';
-      base.src = it.thumb || it.src;
+      a._load = () => { if (!base.getAttribute('src')) base.src = it.thumb || it.src; };   // see `lazy`
     } else {
       base = document.createElement('video');
-      base.muted = true; base.preload = 'metadata'; base.src = it.src + '#t=0.1';
+      base.muted = true; base.preload = 'metadata';
+      a._load = () => { if (!base.getAttribute('src')) base.src = it.src + '#t=0.1'; };
     }
     a.append(base);
 
@@ -1243,8 +1257,9 @@ button.chip{font-weight:500}
       };
     }
 
-    a.addEventListener('mouseenter', () => { a._hover = true; if (a._vid) { a._play(); a._track(); } });
-    a.addEventListener('mouseleave', () => { a._hover = false; if (a._vid && !canAutoplay(a)) a._stop(); });
+    // Not for touch: a tap would start a video only for the lightbox it opens to stop it again.
+    a.addEventListener('pointerenter', (e) => { if (e.pointerType === 'touch') return; a._hover = true; if (a._vid) { a._play(); a._track(); } });
+    a.addEventListener('pointerleave', (e) => { if (e.pointerType === 'touch') return; a._hover = false; if (a._vid && !canAutoplay(a)) a._stop(); });
     a.addEventListener('click', (e) => {
       if (e.button || e.ctrlKey || e.metaKey || e.shiftKey) return; // let modified clicks open the post
       e.preventDefault();
@@ -1264,6 +1279,7 @@ button.chip{font-weight:500}
     const rec = { el: tile, ratio, span };
     S.tiles.push(rec);
     place(rec);
+    lazy.observe(tile);
     if (tile._vid || tile._gallery) io.observe(tile);
   }
 
@@ -1355,7 +1371,7 @@ button.chip{font-weight:500}
     if (S.loading || S.done || !app.classList.contains('open')) return;
     if (auto && (S.emptyStreak >= 5 || statusEl.classList.contains('err'))) return;
     const remaining = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
-    if (remaining < 1200) loadMore();
+    if (remaining < Math.max(1200, scroller.clientHeight * 1.5)) loadMore();
   }
 
   // Each item lands in exactly one bucket:
@@ -1388,6 +1404,7 @@ button.chip{font-weight:500}
     S.restore = null;
     S.tiles.forEach((t) => t.el._stop?.());
     io.disconnect();
+    lazy.disconnect();
     Object.assign(S, { tiles: [], slides: [], emptyStreak: 0 });
     layoutCols();
     scroller.scrollTop = 0;
@@ -1403,6 +1420,7 @@ button.chip{font-weight:500}
   function reset() {
     S.tiles.forEach((t) => t.el._stop?.());
     io.disconnect();
+    lazy.disconnect();
     S.gen++;
     Object.assign(S, { after: null, loading: false, done: false, emptyStreak: 0, dupes: 0, all: [], tiles: [], slides: [] });
     S.seen.clear();
@@ -1652,7 +1670,12 @@ button.chip{font-weight:500}
     statusEl.classList.remove('err');
     loadMore();
   };
-  scroller.addEventListener('scroll', () => maybeFill(false), { passive: true });
+  let fillQueued = false;
+  scroller.addEventListener('scroll', () => {
+    if (fillQueued) return;
+    fillQueued = true;
+    requestAnimationFrame(() => { fillQueued = false; maybeFill(false); });
+  }, { passive: true });
 
   let resizeTimer, lastGridW = 0;
   new ResizeObserver(() => {
@@ -2462,7 +2485,7 @@ button.chip{font-weight:500}
   }, 600);
 
   let mountTick = 0;
-  setInterval(() => { if (!app.classList.contains('open')) mountInline(++mountTick % 4 === 0); }, 1200);   // look inside shadow roots now and then
+  setInterval(() => { if (!document.hidden && !app.classList.contains('open')) mountInline(++mountTick % 4 === 0); }, 1200);   // look inside shadow roots now and then
   mountInline(true);
   setTimeout(() => mountInline(true), 1500);         // the bar often arrives after the feed
 
