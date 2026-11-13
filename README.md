@@ -32,8 +32,10 @@ Greasemonkey) is loaded.
 - **Media** — Reddit galleries, v.redd.it video with sound, converted GIFs, direct
   images, link previews, crossposts, and Redgifs (full file with audio).
 - **Playback** — tiles play lighter versions while on screen; global mute, autoplay all,
-  gallery autoplay with an interval, and autoscroll at four speeds.
-- **Lightbox** — wheel or arrow keys to step through items, Ctrl+wheel / pinch to zoom
+  gallery autoplay with an interval, and autoscroll at four speeds. Out of the box:
+  muted, autoplay all on, gallery autoplay on.
+- **Lightbox** — wheel, arrow keys or a sideways swipe to step through items, swipe up
+  to go back to the grid, Ctrl+wheel / pinch to zoom
   (up to 10×) and drag to pan, seek bar, loop, fit/fill, fullscreen.
 - **Post actions** — vote, save, hide, follow, share, crosspost, report, and read the
   comments in a side panel without leaving the lightbox.

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Gallery View
 // @namespace    https://violentmonkey.github.io/
-// @version      1.34.0
+// @version      1.35.0
 // @description  Show any Reddit page (subreddit, user, search, custom feed / multireddit, front page) as a media gallery with infinite scroll and a lightbox.
 // @icon         https://www.redditstatic.com/shreddit/assets/favicon/192x192.png
 // @homepageURL  https://github.com/realteamnet/RedditGallery
@@ -45,8 +45,8 @@
     previews: store.get('previews', true),   // include link posts that only have a preview image
     autoOpen: store.get('autoOpen', false),
     muted: store.get('muted', true),               // global mute for every video
-    autoplayAll: store.get('autoplayAll', false),  // play every visible video/GIF tile at once
-    galleryAuto: store.get('galleryAuto', false),  // auto-cycle multi-image posts
+    autoplayAll: store.get('autoplayAll', true),   // play every visible video/GIF tile at once
+    galleryAuto: store.get('galleryAuto', true),   // auto-cycle multi-image posts
     galleryMs: store.get('galleryMs', 1300),       // milliseconds between gallery images
     barUp: store.get('barUp', false),              // header collapsed to a single line
     autoScroll: store.get('autoScroll', false),    // creep down the grid on its own
@@ -2281,13 +2281,22 @@ button.chip{font-weight:500}
     });
   }
 
-  let touchX = null;
-  lb.addEventListener('touchstart', (e) => { touchX = cmtBox.contains(e.composedPath()[0]) ? null : e.touches[0].clientX; }, { passive: true });
+  // Swipe sideways for the next / previous item, swipe up to go back to the grid.
+  let touch = null;
+  lb.addEventListener('touchstart', (e) => {
+    const t = e.composedPath()[0];
+    if (e.touches.length > 1 || cmtBox.contains(t) || reportBox.contains(t)) { touch = null; return; }   // a pinch, or a panel that scrolls itself
+    // A picture taller than the screen scrolls to its end before a swipe up closes it.
+    const atEnd = stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 1;
+    touch = { x: e.touches[0].clientX, y: e.touches[0].clientY, atEnd };
+  }, { passive: true });
   lb.addEventListener('touchend', (e) => {
-    if (touchX == null || zoom !== 1) { touchX = null; return; }   // a zoomed picture is being panned
-    const dx = e.changedTouches[0].clientX - touchX;
-    touchX = null;
-    if (Math.abs(dx) > 60) showSlide(lbIdx + (dx < 0 ? 1 : -1));
+    const from = touch;
+    touch = null;
+    if (!from || zoom !== 1) return;                               // a zoomed picture is being panned
+    const dx = e.changedTouches[0].clientX - from.x, dy = e.changedTouches[0].clientY - from.y;
+    if (Math.abs(dx) > 60 && Math.abs(dx) >= Math.abs(dy)) showSlide(lbIdx + (dx < 0 ? 1 : -1));
+    else if (dy < -80 && -dy > Math.abs(dx) * 1.5 && from.atEnd) closeLb();
   }, { passive: true });
 
   /* ------------------------------------------------------------------ *
