@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Gallery View
 // @namespace    https://violentmonkey.github.io/
-// @version      1.35.0
+// @version      1.35.1
 // @description  Show any Reddit page (subreddit, user, search, custom feed / multireddit, front page) as a media gallery with infinite scroll and a lightbox.
 // @icon         https://www.redditstatic.com/shreddit/assets/favicon/192x192.png
 // @homepageURL  https://github.com/realteamnet/RedditGallery
@@ -2006,7 +2006,9 @@ button.chip{font-weight:500}
     const s = S.slides[lbIdx];
     if (s) {
       s.tile._show?.(s.pos);                              // grid tile shows the image you stopped on
-      s.tile.scrollIntoView({ block: 'center' });
+      // The grid stays where it was. It only moves when the item you stopped on is off screen.
+      const top = grid.offsetTop + parseFloat(s.tile.style.top), view = scroller.scrollTop;
+      if (top + parseFloat(s.tile.style.height) <= view || top >= view + scroller.clientHeight) s.tile.scrollIntoView({ block: 'center' });
     }
     lbIdx = -1;
     syncAutoplay();                                       // the grid picks up where it left off
