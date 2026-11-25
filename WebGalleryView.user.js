@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Web Gallery View
 // @namespace    https://violentmonkey.github.io/
-// @version      3.5.2
+// @version      3.5.3
 // @description  Show a page's pictures, GIFs and videos as a media gallery with infinite scroll and a lightbox. Works best-effort on any site with a media grid; Reddit has full support (feeds, sorting, votes, comments).
 // @homepageURL  https://github.com/realteamnet/RedditGallery
 // @downloadURL  https://raw.githubusercontent.com/realteamnet/RedditGallery/main/WebGalleryView.user.js
@@ -1636,6 +1636,12 @@ button.chip{font-weight:500}
     store.set('barUp', cfg.barUp);
     renderBar();
   };
+  // A double click on the header itself (not on one of its controls) does the same.
+  $('header').addEventListener('dblclick', (e) => {
+    if (e.target.closest('button,a,input,select,textarea,label')) return;
+    getSelection()?.removeAllRanges();                // the double click selected a word
+    $('#barToggle').click();
+  });
 
   /* ---- autoscroll: creeps down the grid, paused while you hold the pointer down ---- */
   const SPEEDS_PX = [25, 60, 120, 240];

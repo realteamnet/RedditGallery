@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Gallery View
 // @namespace    https://violentmonkey.github.io/
-// @version      3.5.2
+// @version      3.5.3
 // @description  Show any Reddit page (subreddit, user, search, custom feed / multireddit, front page) as a media gallery with infinite scroll and a lightbox.
 // @icon         https://www.redditstatic.com/shreddit/assets/favicon/192x192.png
 // @homepageURL  https://github.com/realteamnet/RedditGallery
@@ -1507,6 +1507,12 @@ button.chip{font-weight:500}
     store.set('barUp', cfg.barUp);
     renderBar();
   };
+  // A double click on the header itself (not on one of its controls) does the same.
+  $('header').addEventListener('dblclick', (e) => {
+    if (e.target.closest('button,a,input,select,textarea,label')) return;
+    getSelection()?.removeAllRanges();                // the double click selected a word
+    $('#barToggle').click();
+  });
 
   /* ---- autoscroll: creeps down the grid, paused while you hold the pointer down ---- */
   const SPEEDS_PX = [25, 60, 120, 240];
