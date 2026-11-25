@@ -13,7 +13,7 @@ One click installs it if a userscript manager (Violentmonkey, Tampermonkey,
 Greasemonkey) is loaded.
 
 **Reddit only?** [RedditGallery.user.js](https://raw.githubusercontent.com/realteamnet/RedditGallery/main/RedditGallery.user.js)
-is the Reddit-only edition: the same gallery, running on reddit.com and nowhere else.
+is the Reddit-only edition: the same code and the same version, running on reddit.com and nowhere else.
 Install one or the other. If both are installed, only one of them runs on Reddit.
 
 ## Install

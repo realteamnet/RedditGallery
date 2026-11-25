@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Gallery View
 // @namespace    https://violentmonkey.github.io/
-// @version      1.38.0
+// @version      2.1.0
 // @description  Show any Reddit page (subreddit, user, search, custom feed / multireddit, front page) as a media gallery with infinite scroll and a lightbox.
 // @icon         https://www.redditstatic.com/shreddit/assets/favicon/192x192.png
 // @homepageURL  https://github.com/realteamnet/RedditGallery
@@ -20,9 +20,14 @@
 // @connect      api.redgifs.com
 // @connect      media.redgifs.com
 // ==/UserScript==
+// Generated from WebGalleryView.user.js (base + reddit.com plugin). Edit that file, not this one.
 
 (() => {
   'use strict';
+
+  // The Reddit-only and the any-site edition are the same code: only one of them runs.
+  if (document.getElementById('wg-host') || document.getElementById('rg-host')) return;   // rg-host: editions before 2.1
+  const REDDIT = /(^|\.)reddit\.com$/i.test(location.hostname);
 
   /* ------------------------------------------------------------------ *
    *  Settings (persisted with GM_getValue / GM_setValue)
@@ -60,6 +65,67 @@
    *  opened from it, and disappears when the tab closes. Nothing is written to
    *  the persistent (GM_setValue) settings.
    * ------------------------------------------------------------------ */
+  const HANDOFF = '#rg-gallery';   // marker on links opened in a new tab from the gallery
+  const IGNORED_PARAMS = /^(rdt|utm_.+|ref|ref_source|ref_campaign|share_id|correlation_id|context|\$deep_link)$/i;
+
+  function pageKey() {
+    const q = new URLSearchParams(location.search);
+    for (const k of [...q.keys()]) if (IGNORED_PARAMS.test(k)) q.delete(k);
+    const qs = q.toString();
+    return location.pathname.replace(/\/+$/, '').toLowerCase() + (qs ? '?' + qs : '');
+  }
+
+  // Per tab: pages opened in a new tab from the gallery (see HANDOFF). Nothing else writes it.
+  const tabPages = (() => {
+    const KEY = 'rg:handoff-pages';
+    let mem = new Set();   // fallback when sessionStorage is unavailable
+    const read = () => {
+      try { const v = sessionStorage.getItem(KEY); return new Set(v ? JSON.parse(v) : []); } catch { return mem; }
+    };
+    const write = (set) => {
+      mem = set;
+      try { sessionStorage.setItem(KEY, JSON.stringify([...set].slice(-200))); } catch { /* ignore */ }
+    };
+    return {
+      has: (k) => read().has(k),
+      add(k) { const set = read(); set.add(k); write(set); },
+      del(k) { const set = read(); if (set.delete(k)) write(set); },
+    };
+  })();
+
+  // A page you put in gallery view stays that way: saved for good, in every tab, until you
+  // leave gallery view there. Only a deliberate open writes it (see toggle), so no page opens
+  // as a gallery that was not switched to it. Subreddits and multireddits count as one page
+  // under every sort. Read fresh each time, because another tab may have changed it.
+  function feedKey() {
+    const m = /^\/(?:(r\/[^/]+)|(?:user|u)\/([^/]+\/m\/[^/]+))(?:\/(?:hot|new|top|rising|controversial|best))?\/?$/i.exec(location.pathname);
+    return m ? (m[1] || 'user/' + m[2]).toLowerCase() : '';
+  }
+  const memKey = () => (REDDIT ? feedKey() || pageKey() || '/' : location.host + (pageKey() || '/'));
+  const pageMem = {
+    list: () => store.get('galleryPages', null) || store.get('galleryFeeds', []),   // galleryFeeds: the 1.36 name
+    has(k) { return this.list().includes(k); },
+    add(k) { store.set('galleryPages', [...this.list().filter((x) => x !== k), k].slice(-500)); },
+    del(k) { if (this.has(k)) store.set('galleryPages', this.list().filter((x) => x !== k)); },
+  };
+
+
+  // Sites with a Trusted Types policy reject plain strings as HTML.
+  let ttPolicy;
+  function trusted(html) {
+    if (ttPolicy === undefined) {
+      try { ttPolicy = window.trustedTypes?.createPolicy('web-gallery-view', { createHTML: (s) => s }) || null; } catch { ttPolicy = null; }
+    }
+    return ttPolicy ? ttPolicy.createHTML(html) : html;
+  }
+  const setHTML = (n, html) => { n.innerHTML = trusted(html); };
+
+
+  // main() is the gallery itself: the shared base, then one plugin per kind of site. It is
+  // only run when it is needed: at once on Reddit, and on other sites when the page is
+  // remembered, has a media grid, or you ask. (Its body is not indented a second level.)
+  function main() {
+  const SITES = {};                // filled in by the plugin sections further down
   /* ------------------------------------------------------------------ *
    *  Update check: on entering gallery mode, ask the update URL what
    *  version it is serving and offer it if it is newer than this one.
@@ -106,50 +172,6 @@
       });
     } catch { /* the server is not reachable from here */ }
   }
-
-  const HANDOFF = '#rg-gallery';   // marker on links opened in a new tab from the gallery
-  const IGNORED_PARAMS = /^(rdt|utm_.+|ref|ref_source|ref_campaign|share_id|correlation_id|context|\$deep_link)$/i;
-
-  function pageKey() {
-    const q = new URLSearchParams(location.search);
-    for (const k of [...q.keys()]) if (IGNORED_PARAMS.test(k)) q.delete(k);
-    const qs = q.toString();
-    return location.pathname.replace(/\/+$/, '').toLowerCase() + (qs ? '?' + qs : '');
-  }
-
-  // Per tab: pages opened in a new tab from the gallery (see HANDOFF). Nothing else writes it.
-  const tabPages = (() => {
-    const KEY = 'rg:handoff-pages';
-    let mem = new Set();   // fallback when sessionStorage is unavailable
-    const read = () => {
-      try { const v = sessionStorage.getItem(KEY); return new Set(v ? JSON.parse(v) : []); } catch { return mem; }
-    };
-    const write = (set) => {
-      mem = set;
-      try { sessionStorage.setItem(KEY, JSON.stringify([...set].slice(-200))); } catch { /* ignore */ }
-    };
-    return {
-      has: (k) => read().has(k),
-      add(k) { const set = read(); set.add(k); write(set); },
-      del(k) { const set = read(); if (set.delete(k)) write(set); },
-    };
-  })();
-
-  // A page you put in gallery view stays that way: saved for good, in every tab, until you
-  // leave gallery view there. Only a deliberate open writes it (see toggle), so no page opens
-  // as a gallery that was not switched to it. Subreddits and multireddits count as one page
-  // under every sort. Read fresh each time, because another tab may have changed it.
-  function feedKey() {
-    const m = /^\/(?:(r\/[^/]+)|(?:user|u)\/([^/]+\/m\/[^/]+))(?:\/(?:hot|new|top|rising|controversial|best))?\/?$/i.exec(location.pathname);
-    return m ? (m[1] || 'user/' + m[2]).toLowerCase() : '';
-  }
-  const memKey = () => feedKey() || pageKey() || '/';
-  const pageMem = {
-    list: () => store.get('galleryPages', null) || store.get('galleryFeeds', []),   // galleryFeeds: the 1.36 name
-    has(k) { return this.list().includes(k); },
-    add(k) { store.set('galleryPages', [...this.list().filter((x) => x !== k), k].slice(-500)); },
-    del(k) { if (this.has(k)) store.set('galleryPages', this.list().filter((x) => x !== k)); },
-  };
 
   // Which item the lightbox was showing on each page, so a reload picks it up again.
   const tabFocus = (() => {
@@ -253,7 +275,7 @@
       const src = (a.resized_icons || []).find((r) => r.width >= 32)?.url || a.icon_url;
       if (!src) continue;
       const i = new Image();
-      i.referrerPolicy = 'no-referrer';
+      i.referrerPolicy = site.referrer;
       i.alt = a.name || '';
       i.loading = 'lazy';
       i.src = src;
@@ -289,150 +311,6 @@
     return out;
   }
 
-  /* ------------------------------------------------------------------ *
-   *  Source handling (what are we showing?)
-   * ------------------------------------------------------------------ */
-  function sourceFromLocation() {
-    return { path: location.pathname.replace(/\/+$/, ''), query: new URLSearchParams(location.search) };
-  }
-
-  // Accepts: full URL, "r/pics+aww", "pics+aww", "user/name/m/feed", "u/name", "search?q=cats"
-  function parseSource(input) {
-    let s = (input || '').trim();
-    if (/^https?:\/\//i.test(s)) {
-      try {
-        const u = new URL(s);
-        return { path: u.pathname.replace(/\/+$/, ''), query: u.searchParams };
-      } catch { return null; }
-    }
-    s = s.replace(/^\/+/, '').replace(/^u\//i, 'user/');
-    const [p, qs = ''] = s.split('?');
-    const path = /^[\w+-]+$/.test(p) && !/^(search|popular|all)$/i.test(p) ? 'r/' + p : p;
-    return { path: ('/' + path).replace(/\/+$/, ''), query: new URLSearchParams(qs) };
-  }
-
-  function sourceString() {
-    const q = new URLSearchParams(S.query);
-    ['sort', 't', 'after', 'count', 'raw_json', 'limit'].forEach((k) => q.delete(k));
-    const qs = q.toString();
-    return S.path.replace(/^\//, '') + (qs ? '?' + qs : '');
-  }
-
-  function currentSort() {
-    const last = S.path.split('/').pop();
-    return SORTS.includes(last) ? last : (S.query.get('sort') || '');
-  }
-
-  const isListingPath = (p) =>
-    /^(\/r\/[^/]+|\/user\/[^/]+\/m\/[^/]+)?(\/(hot|new|top|rising|controversial|best))?$/i.test(p);
-
-  function applySort(sort, time) {
-    S.restore = null;
-    const parts = S.path.split('/');
-    if (SORTS.includes(parts[parts.length - 1])) { parts.pop(); S.path = parts.join('/'); }
-    S.query.delete('sort');
-    S.query.delete('t');
-    if (sort) {
-      if (isListingPath(S.path)) S.path += '/' + sort;
-      else S.query.set('sort', sort);
-      if (sort === 'top' || sort === 'controversial') S.query.set('t', time || 'day');
-    }
-    reset();
-  }
-
-  function jsonUrl() {
-    const q = new URLSearchParams(S.query);
-    q.set('raw_json', '1');
-    q.set('limit', '100');
-    q.delete('count');
-    if (S.after) q.set('after', S.after); else q.delete('after');
-    return `${location.origin}${S.path ? S.path + '.json' : '/.json'}?${q}`;
-  }
-
-  /* ------------------------------------------------------------------ *
-   *  Media extraction
-   * ------------------------------------------------------------------ */
-  function pickThumb(resolutions, source, target = 640) {
-    const list = [...(resolutions || []), source].filter(Boolean);
-    if (!list.length) return '';
-    return (list.find((r) => r.width >= target) || list[list.length - 1]).url;
-  }
-
-  // v.redd.it serves audio as a separate file next to the silent video track.
-  // e.g. https://v.redd.it/abc123 — the audio file sits next to the video track (see audioUrls).
-  function redditBase(fallbackUrl) {
-    const m = /^(https:\/\/v\.redd\.it\/[^/]+)\//.exec(fallbackUrl || '');
-    return m ? m[1] : '';
-  }
-
-  // Grid tiles play a 480p rendition; the lightbox keeps the full file.
-  const smallDash = (u, h) => (h > 480 ? u.replace(/DASH_\d+(\.mp4)/, 'DASH_480$1') : '');
-
-  function extractMedia(post) {
-    const src = post.crosspost_parent_list?.[0] || post;
-    const prev = src.preview?.images?.[0];
-    const prevThumb = prev ? pickThumb(prev.resolutions, prev.source) : '';
-    const url = src.url_overridden_by_dest || src.url || '';
-
-    // 1. Reddit galleries
-    if (src.is_gallery && src.gallery_data && src.media_metadata) {
-      const out = [];
-      for (const g of src.gallery_data.items) {
-        const m = src.media_metadata[g.media_id];
-        if (!m || m.status !== 'valid' || !m.s) continue;
-        const isGif = m.e === 'AnimatedImage' && (!m.m || /gif/i.test(m.m));   // else animated WebP etc.
-        const thumb = m.p?.length ? (m.p.find((r) => r.x >= 640) || m.p[m.p.length - 1]).u : (m.s.u || m.s.gif);
-        if (m.e === 'AnimatedImage' && m.s.mp4) {
-          out.push({ type: 'video', src: m.s.mp4, thumb, w: m.s.x, h: m.s.y, animated: true, gif: isGif, sound: false });
-        } else if (m.s.u || m.s.gif) {
-          out.push({ type: 'image', src: m.s.u || m.s.gif, thumb, w: m.s.x, h: m.s.y, animated: m.e === 'AnimatedImage', gif: isGif });
-        }
-      }
-      return out;
-    }
-
-    // 2. v.redd.it video (the MP4 is silent; audio is a separate file, see makeVideo)
-    const rv = src.secure_media?.reddit_video || src.media?.reddit_video;
-    if (rv?.fallback_url) {
-      const silent = !!rv.is_gif || rv.has_audio === false;
-      return [{
-        type: 'video', src: rv.fallback_url, tile: smallDash(rv.fallback_url, rv.height), thumb: prevThumb, w: rv.width, h: rv.height,
-        audio: silent ? '' : redditBase(rv.fallback_url), dash: rv.dash_url || '',
-        sound: silent ? false : rv.has_audio,             // undefined when Reddit does not say
-        animated: !!rv.is_gif, gif: !!rv.is_gif,          // Reddit converts uploaded GIFs into looping "videos"
-      }];
-    }
-
-    // 3. GIFs that Reddit converted to MP4. Reddit's copies of Redgifs clips are silent previews;
-    //    `redgifs` marks them so makeVideo can swap in the real file, which may have sound.
-    const rg = /redgifs\.com\/(?:watch|ifr)\/([a-z0-9]+)/i.exec(url)?.[1]?.toLowerCase();
-    const gifMp4 = prev?.variants?.mp4?.source;
-    if (gifMp4?.url) {
-      const small = prev.variants.mp4.resolutions?.find((r) => r.width >= 640);
-      return [{ type: 'video', src: gifMp4.url, tile: small?.url, thumb: prevThumb, w: gifMp4.width, h: gifMp4.height, animated: true, gif: !rg,
-        ...(rg ? { redgifs: rg } : { sound: false }) }];
-    }
-    const rvp = src.preview?.reddit_video_preview;
-    if (rvp?.fallback_url) {
-      return [{ type: 'video', src: rvp.fallback_url, tile: smallDash(rvp.fallback_url, rvp.height), thumb: prevThumb, w: rvp.width, h: rvp.height, animated: rvp.is_gif !== false,
-        ...(rg ? { redgifs: rg } : { sound: false }) }];
-    }
-    if (/\.gifv(\?|$)/i.test(url)) {
-      return [{ type: 'video', src: url.replace(/\.gifv(\?.*)?$/i, '.mp4'), thumb: prevThumb, w: prev?.source?.width, h: prev?.source?.height, animated: true, gif: true }];
-    }
-
-    // 4. Direct images
-    if (/\.(jpe?g|png|gif|webp|avif)(\?|$)/i.test(url) || src.post_hint === 'image' || /^https?:\/\/(i\.redd\.it|i\.imgur\.com)\//i.test(url)) {
-      return [{ type: 'image', src: url, thumb: prevThumb || url, w: prev?.source?.width, h: prev?.source?.height, animated: /\.gif(\?|$)/i.test(url), gif: /\.gif(\?|$)/i.test(url) }];
-    }
-
-    // 5. Link posts that only carry a preview image (articles, imgur pages, etc.)
-    if (cfg.previews && prev?.source?.url) {
-      return [{ type: 'image', src: prev.source.url, thumb: prevThumb, w: prev.source.width, h: prev.source.height, external: true }];
-    }
-    return [];
-  }
-
   // A repost or crosspost carries the same file, so the address (without its query string)
   // identifies it. A re-upload of the same picture gets a new address and is not caught.
   function mediaKey(items) {
@@ -450,6 +328,7 @@
 :host{all:initial}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
+.app:not(.reddit) .rd{display:none!important}
 button,select,input{font:inherit;color:inherit}
 .fab,.app{z-index:2147483647}
 .fab{position:fixed;right:18px;bottom:18px;font:600 13px/1 "Avenir Next","Segoe UI Variable",system-ui,sans-serif;color:#1c1d20;background:#e9b44c;border:0;border-radius:999px;padding:11px 16px;cursor:pointer;box-shadow:0 6px 22px rgba(0,0,0,.4);opacity:.92;transition:opacity .15s,transform .15s}
@@ -709,15 +588,14 @@ button.chip{font-weight:500}
   ];
 
   const host = document.createElement('div');
-  host.id = 'rg-host';
+  host.id = 'wg-host';
   const root = host.attachShadow({ mode: 'open' });
-  root.innerHTML = `
-<style>${CSS}</style>
+  setHTML(root, `
 <button class="fab" title="Open gallery (Alt+G)">Gallery</button>
 <div class="app">
   <header>
     <span class="brand keep"><i></i>Gallery</span>
-    <div class="gr" id="gFeed">
+    <div class="gr rd" id="gFeed">
       <span class="joined">
         <input id="src" type="text" spellcheck="false" placeholder="r/pics+aww, user/name/m/feed, or a reddit URL">
         <button id="go" class="primary">Load</button>
@@ -728,11 +606,11 @@ button.chip{font-weight:500}
       <button id="refresh" title="Reload the page (shift-click to fetch the listing again without reloading)">Refresh</button>
     </div>
     <div class="gr">
-      <select id="sort" title="Sort">
+      <select id="sort" class="rd" title="Sort">
         <option value="">default order</option><option>hot</option><option>new</option>
         <option>top</option><option>rising</option><option>controversial</option>
       </select>
-      <select id="time" title="Time range" hidden>
+      <select id="time" class="rd" title="Time range" hidden>
         <option value="hour">past hour</option><option value="day">past day</option>
         <option value="week">past week</option><option value="month">past month</option>
         <option value="year">past year</option><option value="all">all time</option>
@@ -745,7 +623,7 @@ button.chip{font-weight:500}
     <div class="end keep">
       <span id="count" class="dim"></span>
       <button id="update" class="primary" title="A newer version is on the server. Opens it so Violentmonkey can install it." hidden></button>
-      <button id="close" title="Leave gallery view and go back to Reddit (Esc)">Exit gallery</button>
+      <button id="close" title="Leave gallery view and go back to the page (Esc)">Exit gallery</button>
       <button id="barToggle" class="icon" aria-expanded="true"></button>
     </div>
     <div class="opts">
@@ -753,8 +631,8 @@ button.chip{font-weight:500}
         <span class="gh">Grid</span>
         <label class="chip">Columns <select id="cols" title="Number of columns"></select></label>
         <label class="chip"><input id="wide" type="checkbox">Widen landscape</label>
-        <label class="chip"><input id="nsfw" type="checkbox">Blur NSFW</label>
-        <label class="chip"><input id="prev" type="checkbox">Link previews</label>
+        <label class="chip rd"><input id="nsfw" type="checkbox">Blur NSFW</label>
+        <label class="chip rd"><input id="prev" type="checkbox">Link previews</label>
       </div>
       <div class="group">
         <span class="gh">Playback</span>
@@ -805,8 +683,8 @@ button.chip{font-weight:500}
     <button class="nav prev" title="Previous (←)">‹</button>
     <div class="stage"></div>
     <button class="nav next" title="Next (→)">›</button>
-    <div class="postbar"><span class="acts"></span><span class="menu"></span></div>
-    <aside class="cmts" id="cmts" hidden>
+    <div class="postbar rd"><span class="acts"></span><span class="menu"></span></div>
+    <aside class="cmts rd" id="cmts" hidden>
       <div class="cmh">
         <b id="cmTitle">Comments</b>
         <select id="cmSort" title="Comment order">
@@ -820,7 +698,16 @@ button.chip{font-weight:500}
     </aside>
     <div class="toast"></div>
   </div>
-</div>`;
+</div>`);
+  try {
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync(CSS);
+    root.adoptedStyleSheets = [sheet];
+  } catch {
+    const st = document.createElement('style');
+    st.textContent = CSS;
+    root.prepend(st);
+  }
   document.documentElement.append(host);
 
   const $ = (s) => root.querySelector(s);
@@ -1159,13 +1046,13 @@ button.chip{font-weight:500}
     const n = items.length;
     const it = items[0];
     const a = el('a', 'tile' + (post.over_18 ? ' nsfw' : ''));
-    a.href = location.origin + post.permalink + HANDOFF;
+    a.href = site.postHref(post);
 
     let base;
     if (it.thumb || it.type === 'image' || n > 1) {
       base = new Image();
       base.decoding = 'async';
-      base.referrerPolicy = 'no-referrer';
+      base.referrerPolicy = site.referrer;
       base.alt = '';
       a._load = () => { if (!base.getAttribute('src')) base.src = it.thumb || it.src; };   // see `lazy`
     } else {
@@ -1183,7 +1070,7 @@ button.chip{font-weight:500}
 
     const meta = el('div', 'meta');
     meta.append(el('b', '', post.title));
-    meta.append(
+    if (post.subreddit) meta.append(
       feedSpan('r/' + post.subreddit, 'r/' + post.subreddit, true),
       feedSpan('u/' + post.author, 'user/' + post.author, true),
     );
@@ -1202,7 +1089,7 @@ button.chip{font-weight:500}
         badge.textContent = `${gi + 1} / ${n}`;
         const nx = items[(gi + 1) % n];
         const pre = new Image();
-        pre.referrerPolicy = 'no-referrer';
+        pre.referrerPolicy = site.referrer;
         pre.src = nx.thumb || nx.src;
       };
       a._show = show;
@@ -1279,6 +1166,7 @@ button.chip{font-weight:500}
     return a;
   }
 
+  let reflow;
   function addPost(post, items) {
     const first = S.slides.length;
     const aspect = (items[0].w || 1) / (items[0].h || 1);           // width / height
@@ -1288,6 +1176,16 @@ button.chip{font-weight:500}
     const tile = buildTile(post, items, first);
     items.forEach((item, pos) => S.slides.push({ post, item, pos, count: items.length, tile, first }));
     const rec = { el: tile, ratio, span };
+    if (!items[0].w || !items[0].h) {
+      tile.querySelector('img')?.addEventListener('load', (e) => {
+        const { naturalWidth: w, naturalHeight: h } = e.target;
+        if (!w || !h) return;
+        rec.ratio = clamp(h / w, 0.3, 2.2);
+        rec.span = w / h >= 1.7 ? 3 : w / h >= 1.2 ? 2 : 1;
+        clearTimeout(reflow);
+        reflow = setTimeout(layoutCols, 150);
+      }, { once: true });
+    }
     S.tiles.push(rec);
     place(rec);
     lazy.observe(tile);
@@ -1308,62 +1206,7 @@ button.chip{font-weight:500}
       : '';
   }
 
-  async function loadMore() {
-    if (S.loading || S.done) return;
-    S.loading = true;
-    const gen = S.gen;
-    setStatus('Loading…');
-    try {
-      const res = await fetch(jsonUrl(), { credentials: 'same-origin', headers: { Accept: 'application/json' } });
-      if (!res.ok) {
-        throw new Error(
-          res.status === 429 ? 'Reddit is rate limiting requests (429). Wait a moment, then click here to retry.' :
-          res.status === 403 ? 'Reddit refused access (403). The feed may be private, quarantined or age-gated. Click here to retry.' :
-          res.status === 404 ? 'Nothing found at this address (404).' :
-          `Request failed (HTTP ${res.status}). Click here to retry.`);
-      }
-      let json;
-      try { json = await res.json(); } catch { throw new Error('Reddit did not return a listing for this page.'); }
-      if (gen !== S.gen) return;
-
-      const listing = Array.isArray(json) ? json[0] : json;      // comment pages return [post, comments]
-      const children = listing?.data?.children || [];
-      S.after = listing?.data?.after || null;
-      if (!S.after) S.done = true;
-
-      let added = 0;
-      for (const c of children) {
-        if (c.kind !== 't3') continue;
-        const post = c.data;
-        if (S.seen.has(post.name)) continue;                      // same post again, from overlapping pages
-        S.seen.add(post.name);
-        const items = extractMedia(post);
-        if (!items.length) continue;
-        const key = mediaKey(items);
-        if (key) {
-          if (S.media.has(key)) { S.dupes++; continue; }
-          S.media.add(key);
-        }
-        S.all.push({ post, items });
-        const shown = items.filter(matchesFilter);
-        if (!shown.length) continue;
-        addPost(post, shown);
-        added++;
-      }
-      S.emptyStreak = added ? 0 : S.emptyStreak + 1;
-      updateCount();
-      refreshStatus();
-      maybeRestore();
-    } catch (e) {
-      if (gen === S.gen) setStatus(e.message || String(e), true);
-    } finally {
-      if (gen === S.gen) {
-        S.loading = false;
-        if (S.restore && !S.done) loadMore();   // keep paging until the remembered item turns up
-        else maybeFill(true);
-      }
-    }
-  }
+  function loadMore() { return site.load(); }
 
   // After a reload, page through the feed until the item the lightbox was on shows up again.
   function maybeRestore() {
@@ -1545,7 +1388,7 @@ button.chip{font-weight:500}
       const none = id === '#tbMute' && noSound();
       if (id === '#mute') b.textContent = cfg.muted ? 'Muted' : 'Sound on';
       else {
-        b.innerHTML = cfg.muted || none ? TB_ICON.muted : TB_ICON.sound;
+        setHTML(b, cfg.muted || none ? TB_ICON.muted : TB_ICON.sound);
         b.title = none ? 'This video has no sound' : (cfg.muted ? 'Unmute' : 'Mute') + ' (M)';
       }
       b.classList.toggle('on', !cfg.muted && !none);
@@ -1689,6 +1532,637 @@ button.chip{font-weight:500}
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => { if (app.classList.contains('open')) layoutCols(); }, 120);
   }).observe(grid);
+
+  /* ------------------------------------------------------------------ *
+   *  Lightbox
+   * ------------------------------------------------------------------ */
+  function clearStage() {
+    stage.querySelectorAll('video').forEach(killVideo);   // also stops companion audio
+    stage.replaceChildren();
+    stage.classList.remove('sliding');                 // its animation was cut short
+    resetZoom();
+  }
+
+  function openLb(i) {
+    lb.classList.add('open');
+    for (const t of S.tiles) t.el._stop?.();     // nothing keeps playing behind the preview
+    showSlide(i);
+  }
+
+  function closeLb() {
+    if (!lb.classList.contains('open')) return;
+    tabFocus.del(pageKey());
+    lb.classList.remove('open', 'idle');
+    hidePanels();
+    closeComments();
+    if (inFs()) { try { exitFs()?.catch?.(() => {}); } catch { /* ignore */ } }
+    clearStage();
+    const s = S.slides[lbIdx];
+    if (s) {
+      s.tile._show?.(s.pos);                              // grid tile shows the image you stopped on
+      // The grid stays where it was. It only moves when the item you stopped on is off screen.
+      const top = grid.offsetTop + parseFloat(s.tile.style.top), view = scroller.scrollTop;
+      if (top + parseFloat(s.tile.style.height) <= view || top >= view + scroller.clientHeight) s.tile.scrollIntoView({ block: 'center' });
+    }
+    lbIdx = -1;
+    syncAutoplay();                                       // the grid picks up where it left off
+  }
+
+  // The outgoing item stays on stage as a paused ghost while it slides away, then goes.
+  function slideOut(old, dir) {
+    const { offsetLeft: left, offsetTop: top, offsetWidth: width, offsetHeight: height } = old;
+    old.remove();                                     // keep clearStage from killing it now
+    if (old.tagName === 'VIDEO') old.pause();         // its companion audio follows the pause
+    old.classList.remove('in-next', 'in-prev');
+    old.classList.add('ghost', dir > 0 ? 'out-next' : 'out-prev');
+    Object.assign(old.style, { left: left + 'px', top: top + 'px', width: width + 'px', height: height + 'px' });
+    return () => {
+      stage.append(old);
+      setTimeout(() => (old.tagName === 'VIDEO' ? killVideo(old) : old.remove()), 300);
+    };
+  }
+
+  // slide: 1 or -1 (wheel navigation) slides the old item out left/right and the new one in.
+  function showSlide(i, slide = 0) {
+    if (i < 0 || i >= S.slides.length) return;
+    const changedPost = S.slides[lbIdx]?.post !== S.slides[i].post;
+    lbIdx = i;
+    const { post, item, pos, count } = S.slides[i];
+    if (changedPost) {
+      hidePanels();
+      if (!cmtBox.hidden) loadComments(post);            // the open comments follow the post
+    }
+    tabFocus.set(pageKey(), { id: post.name, pos });
+
+    if (slide && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) slide = 0;
+    const old = slide && media();
+    const ghost = old ? slideOut(old, slide) : null;
+    clearStage();
+    let m;
+    if (item.type === 'video') {
+      m = makeVideo(item, { controls: true });
+      m.loop = cfg.loop;
+      m.defaultPlaybackRate = m.playbackRate = cfg.speed;
+    } else {
+      m = new Image();
+      m.referrerPolicy = site.referrer;
+      m.alt = post.title;
+      if (item.thumb && item.thumb !== item.src) m.addEventListener('error', () => { m.src = item.thumb; }, { once: true });
+      m.src = item.src;
+    }
+    stage.append(m);
+    stage.scrollTop = 0;
+    stage.scrollLeft = 0;
+    if (slide) {
+      ghost?.();
+      m.classList.add(slide > 0 ? 'in-next' : 'in-prev');
+      stage.classList.add('sliding');                 // no scrollbar flash while it moves in
+      m.addEventListener('animationend', () => {
+        m.classList.remove('in-next', 'in-prev');
+        stage.classList.remove('sliding');
+      }, { once: true });
+    }
+    if (item.type === 'video') startVideo(m);
+    lb.querySelectorAll('.vo').forEach((n) => { n.hidden = item.type !== 'video'; });   // video-only controls
+    renderMute();                                     // greyed out when this video is known to be silent
+    const amb = item.type === 'image' ? item.thumb || item.src : item.thumb;
+    lb.style.setProperty('--amb', amb ? `url("${amb.replace(/["\\\n]/g, encodeURIComponent)}")` : 'none');
+
+    cap.replaceChildren();
+    const title = el('a', '', post.title);
+    title.href = site.postHref(post);
+    title.target = '_blank';
+    title.rel = 'noopener noreferrer';
+    const row = el('div', 'row');
+    if (count > 1) row.append(el('span', '', `${pos + 1} of ${count}`));
+    if (post.subreddit) row.append(
+      feedSpan('r/' + post.subreddit, 'r/' + post.subreddit),
+      feedSpan('u/' + post.author, 'user/' + post.author),
+    );
+    if (post.created_utc) row.append(el('span', '', ago(post.created_utc) + ' ago'));
+    const aw = awardsEl(post);
+    if (aw) row.append(aw);
+    if (item.external) {
+      const ext = el('a', '', 'Open linked page');
+      ext.href = post.url_overridden_by_dest || post.url;
+      ext.target = '_blank';
+      ext.rel = 'noopener noreferrer';
+      row.append(ext);
+    }
+    cap.append(title, row);
+    renderActions();
+
+    for (const j of [i + 1, i - 1]) {
+      const sl = S.slides[j];
+      if (sl && sl.item.type === 'image') { const p = new Image(); p.referrerPolicy = site.referrer; p.src = sl.item.src; }
+    }
+    if (i >= S.slides.length - 8) loadMore();
+  }
+
+  $('.prev').onclick = () => showSlide(lbIdx - 1);
+  $('.next').onclick = () => showSlide(lbIdx + 1);
+  $('.lbclose').onclick = closeLb;
+  // Clicking any empty space around the media goes back to the grid: the area the media
+  // sits in, and the gaps beside the post buttons underneath it.
+  const backdrop = (t) => t === stage || t === lb;   // the blurred .amb layer takes no clicks, so it counts as lb
+  lb.addEventListener('click', (e) => {
+    if (panned) { panned = false; return; }            // the end of a drag, not a click
+    if (!backdrop(e.composedPath()[0])) return;
+    if (reportBox.hidden) closeLb(); else hidePanels();
+  });
+  lb.addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefault(); });      // no autoscroll cursor
+  lb.addEventListener('auxclick', (e) => { if (e.button === 1) { e.preventDefault(); closeLb(); } });
+
+  /* ---- lightbox toolbar ---- */
+  const tb = $('.toolbar');
+  const FITS = ['contain', 'fit', 'fill', 'width', 'actual'];
+  const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+  if (!FITS.includes(cfg.fit)) cfg.fit = 'contain';
+  if (!SPEEDS.includes(cfg.speed)) cfg.speed = 1;
+
+  const reqFs = () => (lb.requestFullscreen || lb.webkitRequestFullscreen)?.call(lb);
+  function exitFs() { return (document.exitFullscreen || document.webkitExitFullscreen)?.call(document); }
+  function inFs() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+  let lbFull = false, fsByUs = false;
+  function toggleFullscreen() {
+    fsByUs = inFs();
+    try { (inFs() ? exitFs() : reqFs())?.catch?.(() => {}); } catch { /* ignore */ }
+  }
+
+  // The browser keeps Esc for itself in fullscreen and never passes it to the page, so a
+  // fullscreen exit the script did not ask for is that Esc: carry on down the Esc chain.
+  function fsChanged() {
+    const was = lbFull, ours = fsByUs;
+    lbFull = root.fullscreenElement === lb;    // not a video the user made fullscreen itself
+    fsByUs = false;
+    if (was && !lbFull && !ours && lb.classList.contains('open')) {
+      if (!reportBox.hidden) hidePanels();
+      else if (!cmtBox.hidden) closeComments();
+      else closeLb();
+    }
+  }
+
+  function applyFit() {
+    stage.className = 'stage fit-' + cfg.fit;
+    stage.scrollTop = 0;
+    stage.scrollLeft = 0;
+    resetZoom();
+  }
+
+  function renderToolbar() {
+    $('#tbFit').value = cfg.fit;
+    $('#tbSpeed').value = String(cfg.speed);
+    setHTML($('#tbLoop'), TB_ICON.loop);
+    $('#tbLoop').title = cfg.loop ? 'Looping (click to play once)' : 'Plays once (click to loop)';
+    $('#tbLoop').classList.toggle('on', cfg.loop);
+    $('#tbCaption').classList.toggle('on', cfg.caption);
+    cap.hidden = !cfg.caption;
+    renderMute();
+  }
+
+  // Z flips between filling the screen and whichever mode you were on before.
+  let lastFit = cfg.fit === 'fill' ? 'contain' : cfg.fit;
+  function toggleFill() {
+    if (cfg.fit !== 'fill') lastFit = cfg.fit;
+    cfg.fit = cfg.fit === 'fill' ? lastFit : 'fill';
+    store.set('fit', cfg.fit);
+    renderToolbar();
+    applyFit();
+  }
+
+  const eachVideo = (fn) => stage.querySelectorAll('video').forEach(fn);
+  $('#tbFit').onchange = (e) => { cfg.fit = e.target.value; store.set('fit', cfg.fit); applyFit(); e.target.blur(); };
+  $('#tbSpeed').onchange = (e) => {
+    cfg.speed = +e.target.value;
+    store.set('speed', cfg.speed);
+    eachVideo((v) => { v.defaultPlaybackRate = v.playbackRate = cfg.speed; });
+    e.target.blur();
+  };
+  $('#tbLoop').onclick = () => {
+    cfg.loop = !cfg.loop;
+    store.set('loop', cfg.loop);
+    renderToolbar();
+    eachVideo((v) => { v.loop = cfg.loop; });
+  };
+  $('#tbCaption').onclick = () => { cfg.caption = !cfg.caption; store.set('caption', cfg.caption); renderToolbar(); };
+
+  // In fullscreen the toolbar, caption and arrows fade out after a pause and return on movement.
+  let idleTimer;
+  function wake() {
+    lb.classList.remove('idle');
+    clearTimeout(idleTimer);
+    if (!inFs() || !lb.classList.contains('open')) return;
+    idleTimer = setTimeout(() => {
+      if (tb.matches(':hover') || !reportBox.hidden) return;
+      lb.classList.add('idle');
+    }, 2500);
+  }
+  lb.addEventListener('mousemove', wake);
+  lb.addEventListener('touchstart', wake, { passive: true });
+  ['fullscreenchange', 'webkitfullscreenchange'].forEach((ev) => document.addEventListener(ev, () => { fsChanged(); wake(); }));
+
+  /* ---- wheel steps through items; Ctrl+wheel zooms around the pointer, drag pans ---- */
+  let zoom = 1, panX = 0, panY = 0, drag = null, panned = false;
+  let wheelSum = 0, wheelAt = 0, stepAt = 0;
+  const media = () => stage.querySelector('img:not(.ghost),video:not(.ghost)');
+
+  function drawZoom() {
+    const m = media();
+    if (m) m.style.transform = zoom === 1 ? '' : `translate(${panX}px,${panY}px) scale(${zoom})`;
+    stage.classList.toggle('zoomed', zoom !== 1);
+  }
+
+  function resetZoom() {
+    zoom = 1; panX = 0; panY = 0; drag = null;
+    stage.classList.remove('panning');
+    drawZoom();
+  }
+
+  // Keeps the point under the pointer still: it moves by (1 - new/old) of its distance from the corner.
+  function zoomAt(z, cx, cy) {
+    const m = media();
+    z = clamp(z, 1, 10);
+    if (!m || z === 1) { resetZoom(); return; }
+    const r = m.getBoundingClientRect();
+    const k = 1 - z / zoom;
+    panX += (cx - r.left) * k;
+    panY += (cy - r.top) * k;
+    zoom = z;
+    drawZoom();
+  }
+
+  lb.addEventListener('wheel', (e) => {
+    const t = e.composedPath()[0];
+    if (!lb.classList.contains('open') || reportBox.contains(t) || cmtBox.contains(t)) return;   // those scroll themselves
+    const dy = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 600 : 1);   // lines / pages to pixels
+    if (e.ctrlKey) {                                   // also what a trackpad pinch sends
+      e.preventDefault();
+      zoomAt(zoom * Math.exp(-dy * 0.002), e.clientX, e.clientY);
+      return;
+    }
+    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+    // A picture taller than the screen (width / actual size) scrolls to its end first.
+    const canScroll = dy > 0 ? stage.scrollTop + stage.clientHeight < stage.scrollHeight - 1 : stage.scrollTop > 0;
+    if (zoom === 1 && stage.contains(t) && canScroll) return;
+    e.preventDefault();
+    // Trackpads send a stream of small events: add them up and allow one step per gesture.
+    if (e.timeStamp - wheelAt > 200) wheelSum = 0;
+    wheelAt = e.timeStamp;
+    wheelSum += dy;
+    if (Math.abs(wheelSum) < 50 || e.timeStamp - stepAt < 300) return;
+    stepAt = e.timeStamp;
+    showSlide(lbIdx + Math.sign(wheelSum), Math.sign(wheelSum));
+    wheelSum = 0;
+  }, { passive: false });
+
+  lb.addEventListener('pointerdown', () => { panned = false; }, true);   // a drag with no click after it
+  stage.addEventListener('pointerdown', (e) => {
+    if (zoom === 1 || e.button) return;
+    e.preventDefault();
+    drag = { x: e.clientX - panX, y: e.clientY - panY, sx: e.clientX, sy: e.clientY };
+    stage.classList.add('panning');
+    try { stage.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  });
+  stage.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    panX = e.clientX - drag.x;
+    panY = e.clientY - drag.y;
+    drawZoom();
+  });
+  for (const ev of ['pointerup', 'pointercancel']) {
+    stage.addEventListener(ev, (e) => {
+      if (!drag) return;
+      panned = Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 4;
+      drag = null;
+      stage.classList.remove('panning');
+    });
+  }
+
+  // Swipe sideways for the next / previous item, swipe up to go back to the grid.
+  let touch = null;
+  lb.addEventListener('touchstart', (e) => {
+    const t = e.composedPath()[0];
+    if (e.touches.length > 1 || cmtBox.contains(t) || reportBox.contains(t)) { touch = null; return; }   // a pinch, or a panel that scrolls itself
+    // A picture taller than the screen scrolls to its end before a swipe up closes it.
+    const atEnd = stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 1;
+    touch = { x: e.touches[0].clientX, y: e.touches[0].clientY, atEnd };
+  }, { passive: true });
+  lb.addEventListener('touchend', (e) => {
+    const from = touch;
+    touch = null;
+    if (!from || zoom !== 1) return;                               // a zoomed picture is being panned
+    const dx = e.changedTouches[0].clientX - from.x, dy = e.changedTouches[0].clientY - from.y;
+    if (Math.abs(dx) > 60 && Math.abs(dx) >= Math.abs(dy)) showSlide(lbIdx + (dx < 0 ? 1 : -1));
+    else if (dy < -80 && -dy > Math.abs(dx) * 1.5 && from.atEnd) closeLb();
+  }, { passive: true });
+
+  /* ------------------------------------------------------------------ *
+   *  Open / close
+   * ------------------------------------------------------------------ */
+  // A plugin may have the page hidden while the gallery is up (site.hidePage).
+  let pageHidden = false, pageScroll = 0;
+  function coverPage(on) {
+    if (on === pageHidden) return;
+    pageHidden = on;
+    if (on) { pageScroll = scrollY; if (site.hidePage) document.body.style.display = 'none'; }
+    else { if (site.hidePage) document.body.style.display = ''; scrollTo(0, pageScroll); }
+  }
+
+  function openGallery(force) {
+    app.classList.add('open');
+    syncFab();
+    checkUpdate();
+    startScroll();
+    document.documentElement.style.overflow = 'hidden';
+    coverPage(true);
+    pushGuard();
+    if (force || S.href !== pageKey()) {
+      S.href = pageKey();
+      const s = sourceFromLocation();
+      S.path = s.path;
+      S.query = s.query;
+      reset();
+      S.restore = tabFocus.get(pageKey());   // reset() clears state, so ask after it
+      S.restoreTries = 0;
+    } else {
+      layoutCols();
+      maybeFill(false);
+    }
+  }
+
+  // hideGallery only hides the overlay; closeGallery is the user leaving gallery mode for this page.
+  function hideGallery() {
+    closeLb();
+    app.classList.remove('open');
+    S.tiles.forEach((t) => t.el._stop?.());
+    coverPage(false);
+    syncFab();
+    document.documentElement.style.overflow = '';
+  }
+
+  function closeGallery() {
+    tabPages.del(pageKey());
+    pageMem.del(memKey());
+    tabFocus.del(pageKey());
+    hideGallery();
+    if (onGuard()) history.back();                   // drop the guard entry, so the next Back really leaves
+  }
+
+  // While the gallery is open, Back must not leave the page. The open gallery sits on a
+  // history entry of its own (same address, marked in its state); a Back off that entry
+  // lands on the same page underneath, and the entry is put straight back.
+  // Browsers skip such an entry on Back until the page has been clicked, tapped or typed in.
+  let guardKey = '';
+  const onGuard = () => !!history.state?.rgGuard;
+  function pushGuard() {
+    guardKey = pageKey();
+    if (onGuard()) return;                           // a reload lands on the guard entry again
+    const state = history.state && typeof history.state === 'object' ? history.state : null;
+    try { history.pushState({ ...state, rgGuard: true }, '', location.href); } catch { /* ignore */ }
+  }
+
+  // Only a deliberate open is remembered for the page.
+  function toggle() {
+    if (app.classList.contains('open')) return closeGallery();
+    pageMem.add(memKey());
+    openGallery();
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.altKey && e.code === 'KeyG') { e.preventDefault(); toggle(); return; }
+    if (!app.classList.contains('open')) return;
+
+    const t = e.composedPath()[0];
+    const typing = t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable);
+    if (typing) { if (e.key === 'Escape') { t.blur(); hidePanels(); } return; }
+
+    const lbOpen = lb.classList.contains('open');
+    if (lbOpen) wake();
+    const panelOpen = !reportBox.hidden;
+    let handled = true;
+    if (e.key === 'Escape') (panelOpen ? hidePanels() : lbOpen && !cmtBox.hidden ? closeComments() : lbOpen ? closeLb() : closeGallery());
+    else if (site.key(e, lbOpen)) { /* the plugin's own shortcut */ }
+    else if (lbOpen && e.key === 'ArrowRight') showSlide(lbIdx + 1);
+    else if (lbOpen && e.key === 'ArrowLeft') showSlide(lbIdx - 1);
+    else if (lbOpen && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'f' || e.key === 'F')) toggleFullscreen();
+    else if (lbOpen && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'm' || e.key === 'M')) lbMute();
+    else if (lbOpen && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'z' || e.key === 'Z')) toggleFill();
+    else handled = false;
+    if (handled) { e.preventDefault(); e.stopPropagation(); }
+  }, true);
+
+  // The corner button, unless the plugin has put a button of its own on the page.
+  function syncFab() {
+    fab.hidden = app.classList.contains('open') || site.fabHidden();
+  }
+
+  /* ================================================================== *
+   *  Plugin: reddit.com
+   *  Feeds from Reddit's JSON listings, media extraction, post actions,
+   *  comments, and a Gallery button in Reddit's own sort bar.
+   *  Still in the base and Reddit-aware: the v.redd.it audio and Redgifs
+   *  handling in the video helpers, and the feed / sort header controls.
+   * ================================================================== */
+  /* ------------------------------------------------------------------ *
+   *  Source handling (what are we showing?)
+   * ------------------------------------------------------------------ */
+  function sourceFromLocation() {
+    return { path: location.pathname.replace(/\/+$/, ''), query: new URLSearchParams(location.search) };
+  }
+
+  // Accepts: full URL, "r/pics+aww", "pics+aww", "user/name/m/feed", "u/name", "search?q=cats"
+  function parseSource(input) {
+    let s = (input || '').trim();
+    if (/^https?:\/\//i.test(s)) {
+      try {
+        const u = new URL(s);
+        return { path: u.pathname.replace(/\/+$/, ''), query: u.searchParams };
+      } catch { return null; }
+    }
+    s = s.replace(/^\/+/, '').replace(/^u\//i, 'user/');
+    const [p, qs = ''] = s.split('?');
+    const path = /^[\w+-]+$/.test(p) && !/^(search|popular|all)$/i.test(p) ? 'r/' + p : p;
+    return { path: ('/' + path).replace(/\/+$/, ''), query: new URLSearchParams(qs) };
+  }
+
+  function sourceString() {
+    const q = new URLSearchParams(S.query);
+    ['sort', 't', 'after', 'count', 'raw_json', 'limit'].forEach((k) => q.delete(k));
+    const qs = q.toString();
+    return S.path.replace(/^\//, '') + (qs ? '?' + qs : '');
+  }
+
+  function currentSort() {
+    const last = S.path.split('/').pop();
+    return SORTS.includes(last) ? last : (S.query.get('sort') || '');
+  }
+
+  const isListingPath = (p) =>
+    /^(\/r\/[^/]+|\/user\/[^/]+\/m\/[^/]+)?(\/(hot|new|top|rising|controversial|best))?$/i.test(p);
+
+  function applySort(sort, time) {
+    S.restore = null;
+    const parts = S.path.split('/');
+    if (SORTS.includes(parts[parts.length - 1])) { parts.pop(); S.path = parts.join('/'); }
+    S.query.delete('sort');
+    S.query.delete('t');
+    if (sort) {
+      if (isListingPath(S.path)) S.path += '/' + sort;
+      else S.query.set('sort', sort);
+      if (sort === 'top' || sort === 'controversial') S.query.set('t', time || 'day');
+    }
+    reset();
+  }
+
+  function jsonUrl() {
+    const q = new URLSearchParams(S.query);
+    q.set('raw_json', '1');
+    q.set('limit', '100');
+    q.delete('count');
+    if (S.after) q.set('after', S.after); else q.delete('after');
+    return `${location.origin}${S.path ? S.path + '.json' : '/.json'}?${q}`;
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  Media extraction
+   * ------------------------------------------------------------------ */
+  function pickThumb(resolutions, source, target = 640) {
+    const list = [...(resolutions || []), source].filter(Boolean);
+    if (!list.length) return '';
+    return (list.find((r) => r.width >= target) || list[list.length - 1]).url;
+  }
+
+  // v.redd.it serves audio as a separate file next to the silent video track.
+  // e.g. https://v.redd.it/abc123 — the audio file sits next to the video track (see audioUrls).
+  function redditBase(fallbackUrl) {
+    const m = /^(https:\/\/v\.redd\.it\/[^/]+)\//.exec(fallbackUrl || '');
+    return m ? m[1] : '';
+  }
+
+  // Grid tiles play a 480p rendition; the lightbox keeps the full file.
+  const smallDash = (u, h) => (h > 480 ? u.replace(/DASH_\d+(\.mp4)/, 'DASH_480$1') : '');
+
+  function extractMedia(post) {
+    const src = post.crosspost_parent_list?.[0] || post;
+    const prev = src.preview?.images?.[0];
+    const prevThumb = prev ? pickThumb(prev.resolutions, prev.source) : '';
+    const url = src.url_overridden_by_dest || src.url || '';
+
+    // 1. Reddit galleries
+    if (src.is_gallery && src.gallery_data && src.media_metadata) {
+      const out = [];
+      for (const g of src.gallery_data.items) {
+        const m = src.media_metadata[g.media_id];
+        if (!m || m.status !== 'valid' || !m.s) continue;
+        const isGif = m.e === 'AnimatedImage' && (!m.m || /gif/i.test(m.m));   // else animated WebP etc.
+        const thumb = m.p?.length ? (m.p.find((r) => r.x >= 640) || m.p[m.p.length - 1]).u : (m.s.u || m.s.gif);
+        if (m.e === 'AnimatedImage' && m.s.mp4) {
+          out.push({ type: 'video', src: m.s.mp4, thumb, w: m.s.x, h: m.s.y, animated: true, gif: isGif, sound: false });
+        } else if (m.s.u || m.s.gif) {
+          out.push({ type: 'image', src: m.s.u || m.s.gif, thumb, w: m.s.x, h: m.s.y, animated: m.e === 'AnimatedImage', gif: isGif });
+        }
+      }
+      return out;
+    }
+
+    // 2. v.redd.it video (the MP4 is silent; audio is a separate file, see makeVideo)
+    const rv = src.secure_media?.reddit_video || src.media?.reddit_video;
+    if (rv?.fallback_url) {
+      const silent = !!rv.is_gif || rv.has_audio === false;
+      return [{
+        type: 'video', src: rv.fallback_url, tile: smallDash(rv.fallback_url, rv.height), thumb: prevThumb, w: rv.width, h: rv.height,
+        audio: silent ? '' : redditBase(rv.fallback_url), dash: rv.dash_url || '',
+        sound: silent ? false : rv.has_audio,             // undefined when Reddit does not say
+        animated: !!rv.is_gif, gif: !!rv.is_gif,          // Reddit converts uploaded GIFs into looping "videos"
+      }];
+    }
+
+    // 3. GIFs that Reddit converted to MP4. Reddit's copies of Redgifs clips are silent previews;
+    //    `redgifs` marks them so makeVideo can swap in the real file, which may have sound.
+    const rg = /redgifs\.com\/(?:watch|ifr)\/([a-z0-9]+)/i.exec(url)?.[1]?.toLowerCase();
+    const gifMp4 = prev?.variants?.mp4?.source;
+    if (gifMp4?.url) {
+      const small = prev.variants.mp4.resolutions?.find((r) => r.width >= 640);
+      return [{ type: 'video', src: gifMp4.url, tile: small?.url, thumb: prevThumb, w: gifMp4.width, h: gifMp4.height, animated: true, gif: !rg,
+        ...(rg ? { redgifs: rg } : { sound: false }) }];
+    }
+    const rvp = src.preview?.reddit_video_preview;
+    if (rvp?.fallback_url) {
+      return [{ type: 'video', src: rvp.fallback_url, tile: smallDash(rvp.fallback_url, rvp.height), thumb: prevThumb, w: rvp.width, h: rvp.height, animated: rvp.is_gif !== false,
+        ...(rg ? { redgifs: rg } : { sound: false }) }];
+    }
+    if (/\.gifv(\?|$)/i.test(url)) {
+      return [{ type: 'video', src: url.replace(/\.gifv(\?.*)?$/i, '.mp4'), thumb: prevThumb, w: prev?.source?.width, h: prev?.source?.height, animated: true, gif: true }];
+    }
+
+    // 4. Direct images
+    if (/\.(jpe?g|png|gif|webp|avif)(\?|$)/i.test(url) || src.post_hint === 'image' || /^https?:\/\/(i\.redd\.it|i\.imgur\.com)\//i.test(url)) {
+      return [{ type: 'image', src: url, thumb: prevThumb || url, w: prev?.source?.width, h: prev?.source?.height, animated: /\.gif(\?|$)/i.test(url), gif: /\.gif(\?|$)/i.test(url) }];
+    }
+
+    // 5. Link posts that only carry a preview image (articles, imgur pages, etc.)
+    if (cfg.previews && prev?.source?.url) {
+      return [{ type: 'image', src: prev.source.url, thumb: prevThumb, w: prev.source.width, h: prev.source.height, external: true }];
+    }
+    return [];
+  }
+
+  async function redditLoad() {
+    if (S.loading || S.done) return;
+    S.loading = true;
+    const gen = S.gen;
+    setStatus('Loading…');
+    try {
+      const res = await fetch(jsonUrl(), { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+      if (!res.ok) {
+        throw new Error(
+          res.status === 429 ? 'Reddit is rate limiting requests (429). Wait a moment, then click here to retry.' :
+          res.status === 403 ? 'Reddit refused access (403). The feed may be private, quarantined or age-gated. Click here to retry.' :
+          res.status === 404 ? 'Nothing found at this address (404).' :
+          `Request failed (HTTP ${res.status}). Click here to retry.`);
+      }
+      let json;
+      try { json = await res.json(); } catch { throw new Error('Reddit did not return a listing for this page.'); }
+      if (gen !== S.gen) return;
+
+      const listing = Array.isArray(json) ? json[0] : json;      // comment pages return [post, comments]
+      const children = listing?.data?.children || [];
+      S.after = listing?.data?.after || null;
+      if (!S.after) S.done = true;
+
+      let added = 0;
+      for (const c of children) {
+        if (c.kind !== 't3') continue;
+        const post = c.data;
+        if (S.seen.has(post.name)) continue;                      // same post again, from overlapping pages
+        S.seen.add(post.name);
+        const items = extractMedia(post);
+        if (!items.length) continue;
+        const key = mediaKey(items);
+        if (key) {
+          if (S.media.has(key)) { S.dupes++; continue; }
+          S.media.add(key);
+        }
+        S.all.push({ post, items });
+        const shown = items.filter(matchesFilter);
+        if (!shown.length) continue;
+        addPost(post, shown);
+        added++;
+      }
+      S.emptyStreak = added ? 0 : S.emptyStreak + 1;
+      updateCount();
+      refreshStatus();
+      maybeRestore();
+    } catch (e) {
+      if (gen === S.gen) setStatus(e.message || String(e), true);
+    } finally {
+      if (gen === S.gen) {
+        S.loading = false;
+        if (S.restore && !S.done) loadMore();   // keep paging until the remembered item turns up
+        else maybeFill(true);
+      }
+    }
+  }
 
   /* ------------------------------------------------------------------ *
    *  Post actions (vote, save, hide, follow, report, …)
@@ -1843,7 +2317,7 @@ button.chip{font-weight:500}
     for (const a of ACTIONS) {
       const b = el('button', 'pa' + (a.cls ? ' ' + a.cls : ''));
       b.dataset.k = a.key;
-      b.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${a.icon}</svg>`;
+      setHTML(b, `<svg viewBox="0 0 24 24" aria-hidden="true">${a.icon}</svg>`);
       b.append(el('span', 't', a.label));
       b.onclick = () => runAction(a, S.slides[lbIdx]?.post || s.post, b);
       if (a.key === 'upvote' || a.key === 'downvote') {   // ↑ score ↓ as one pill
@@ -1984,423 +2458,6 @@ button.chip{font-weight:500}
   };
 
   /* ------------------------------------------------------------------ *
-   *  Lightbox
-   * ------------------------------------------------------------------ */
-  function clearStage() {
-    stage.querySelectorAll('video').forEach(killVideo);   // also stops companion audio
-    stage.replaceChildren();
-    stage.classList.remove('sliding');                 // its animation was cut short
-    resetZoom();
-  }
-
-  function openLb(i) {
-    lb.classList.add('open');
-    for (const t of S.tiles) t.el._stop?.();     // nothing keeps playing behind the preview
-    showSlide(i);
-  }
-
-  function closeLb() {
-    if (!lb.classList.contains('open')) return;
-    tabFocus.del(pageKey());
-    lb.classList.remove('open', 'idle');
-    hidePanels();
-    closeComments();
-    if (inFs()) { try { exitFs()?.catch?.(() => {}); } catch { /* ignore */ } }
-    clearStage();
-    const s = S.slides[lbIdx];
-    if (s) {
-      s.tile._show?.(s.pos);                              // grid tile shows the image you stopped on
-      // The grid stays where it was. It only moves when the item you stopped on is off screen.
-      const top = grid.offsetTop + parseFloat(s.tile.style.top), view = scroller.scrollTop;
-      if (top + parseFloat(s.tile.style.height) <= view || top >= view + scroller.clientHeight) s.tile.scrollIntoView({ block: 'center' });
-    }
-    lbIdx = -1;
-    syncAutoplay();                                       // the grid picks up where it left off
-  }
-
-  // The outgoing item stays on stage as a paused ghost while it slides away, then goes.
-  function slideOut(old, dir) {
-    const { offsetLeft: left, offsetTop: top, offsetWidth: width, offsetHeight: height } = old;
-    old.remove();                                     // keep clearStage from killing it now
-    if (old.tagName === 'VIDEO') old.pause();         // its companion audio follows the pause
-    old.classList.remove('in-next', 'in-prev');
-    old.classList.add('ghost', dir > 0 ? 'out-next' : 'out-prev');
-    Object.assign(old.style, { left: left + 'px', top: top + 'px', width: width + 'px', height: height + 'px' });
-    return () => {
-      stage.append(old);
-      setTimeout(() => (old.tagName === 'VIDEO' ? killVideo(old) : old.remove()), 300);
-    };
-  }
-
-  // slide: 1 or -1 (wheel navigation) slides the old item out left/right and the new one in.
-  function showSlide(i, slide = 0) {
-    if (i < 0 || i >= S.slides.length) return;
-    const changedPost = S.slides[lbIdx]?.post !== S.slides[i].post;
-    lbIdx = i;
-    const { post, item, pos, count } = S.slides[i];
-    if (changedPost) {
-      hidePanels();
-      if (!cmtBox.hidden) loadComments(post);            // the open comments follow the post
-    }
-    tabFocus.set(pageKey(), { id: post.name, pos });
-
-    if (slide && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) slide = 0;
-    const old = slide && media();
-    const ghost = old ? slideOut(old, slide) : null;
-    clearStage();
-    let m;
-    if (item.type === 'video') {
-      m = makeVideo(item, { controls: true });
-      m.loop = cfg.loop;
-      m.defaultPlaybackRate = m.playbackRate = cfg.speed;
-    } else {
-      m = new Image();
-      m.referrerPolicy = 'no-referrer';
-      m.alt = post.title;
-      m.src = item.src;
-    }
-    stage.append(m);
-    stage.scrollTop = 0;
-    stage.scrollLeft = 0;
-    if (slide) {
-      ghost?.();
-      m.classList.add(slide > 0 ? 'in-next' : 'in-prev');
-      stage.classList.add('sliding');                 // no scrollbar flash while it moves in
-      m.addEventListener('animationend', () => {
-        m.classList.remove('in-next', 'in-prev');
-        stage.classList.remove('sliding');
-      }, { once: true });
-    }
-    if (item.type === 'video') startVideo(m);
-    lb.querySelectorAll('.vo').forEach((n) => { n.hidden = item.type !== 'video'; });   // video-only controls
-    renderMute();                                     // greyed out when this video is known to be silent
-    const amb = item.type === 'image' ? item.thumb || item.src : item.thumb;
-    lb.style.setProperty('--amb', amb ? `url("${amb.replace(/["\\\n]/g, encodeURIComponent)}")` : 'none');
-
-    cap.replaceChildren();
-    const title = el('a', '', post.title);
-    title.href = location.origin + post.permalink + HANDOFF;
-    title.target = '_blank';
-    title.rel = 'noopener noreferrer';
-    const row = el('div', 'row');
-    if (count > 1) row.append(el('span', '', `${pos + 1} of ${count}`));
-    row.append(
-      feedSpan('r/' + post.subreddit, 'r/' + post.subreddit),
-      feedSpan('u/' + post.author, 'user/' + post.author),
-    );
-    if (post.created_utc) row.append(el('span', '', ago(post.created_utc) + ' ago'));
-    const aw = awardsEl(post);
-    if (aw) row.append(aw);
-    if (item.external) {
-      const ext = el('a', '', 'Open linked page');
-      ext.href = post.url_overridden_by_dest || post.url;
-      ext.target = '_blank';
-      ext.rel = 'noopener noreferrer';
-      row.append(ext);
-    }
-    cap.append(title, row);
-    renderActions();
-
-    for (const j of [i + 1, i - 1]) {
-      const sl = S.slides[j];
-      if (sl && sl.item.type === 'image') { const p = new Image(); p.referrerPolicy = 'no-referrer'; p.src = sl.item.src; }
-    }
-    if (i >= S.slides.length - 8) loadMore();
-  }
-
-  $('.prev').onclick = () => showSlide(lbIdx - 1);
-  $('.next').onclick = () => showSlide(lbIdx + 1);
-  $('.lbclose').onclick = closeLb;
-  // Clicking any empty space around the media goes back to the grid: the area the media
-  // sits in, and the gaps beside the post buttons underneath it.
-  const backdrop = (t) => t === stage || t === lb;   // the blurred .amb layer takes no clicks, so it counts as lb
-  lb.addEventListener('click', (e) => {
-    if (panned) { panned = false; return; }            // the end of a drag, not a click
-    if (!backdrop(e.composedPath()[0])) return;
-    if (reportBox.hidden) closeLb(); else hidePanels();
-  });
-  lb.addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefault(); });      // no autoscroll cursor
-  lb.addEventListener('auxclick', (e) => { if (e.button === 1) { e.preventDefault(); closeLb(); } });
-
-  /* ---- lightbox toolbar ---- */
-  const tb = $('.toolbar');
-  const FITS = ['contain', 'fit', 'fill', 'width', 'actual'];
-  const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
-  if (!FITS.includes(cfg.fit)) cfg.fit = 'contain';
-  if (!SPEEDS.includes(cfg.speed)) cfg.speed = 1;
-
-  const reqFs = () => (lb.requestFullscreen || lb.webkitRequestFullscreen)?.call(lb);
-  function exitFs() { return (document.exitFullscreen || document.webkitExitFullscreen)?.call(document); }
-  function inFs() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
-  let lbFull = false, fsByUs = false;
-  function toggleFullscreen() {
-    fsByUs = inFs();
-    try { (inFs() ? exitFs() : reqFs())?.catch?.(() => {}); } catch { /* ignore */ }
-  }
-
-  // The browser keeps Esc for itself in fullscreen and never passes it to the page, so a
-  // fullscreen exit the script did not ask for is that Esc: carry on down the Esc chain.
-  function fsChanged() {
-    const was = lbFull, ours = fsByUs;
-    lbFull = root.fullscreenElement === lb;    // not a video the user made fullscreen itself
-    fsByUs = false;
-    if (was && !lbFull && !ours && lb.classList.contains('open')) {
-      if (!reportBox.hidden) hidePanels();
-      else if (!cmtBox.hidden) closeComments();
-      else closeLb();
-    }
-  }
-
-  function applyFit() {
-    stage.className = 'stage fit-' + cfg.fit;
-    stage.scrollTop = 0;
-    stage.scrollLeft = 0;
-    resetZoom();
-  }
-
-  function renderToolbar() {
-    $('#tbFit').value = cfg.fit;
-    $('#tbSpeed').value = String(cfg.speed);
-    $('#tbLoop').innerHTML = TB_ICON.loop;
-    $('#tbLoop').title = cfg.loop ? 'Looping (click to play once)' : 'Plays once (click to loop)';
-    $('#tbLoop').classList.toggle('on', cfg.loop);
-    $('#tbCaption').classList.toggle('on', cfg.caption);
-    cap.hidden = !cfg.caption;
-    renderMute();
-  }
-
-  // Z flips between filling the screen and whichever mode you were on before.
-  let lastFit = cfg.fit === 'fill' ? 'contain' : cfg.fit;
-  function toggleFill() {
-    if (cfg.fit !== 'fill') lastFit = cfg.fit;
-    cfg.fit = cfg.fit === 'fill' ? lastFit : 'fill';
-    store.set('fit', cfg.fit);
-    renderToolbar();
-    applyFit();
-  }
-
-  const eachVideo = (fn) => stage.querySelectorAll('video').forEach(fn);
-  $('#tbFit').onchange = (e) => { cfg.fit = e.target.value; store.set('fit', cfg.fit); applyFit(); e.target.blur(); };
-  $('#tbSpeed').onchange = (e) => {
-    cfg.speed = +e.target.value;
-    store.set('speed', cfg.speed);
-    eachVideo((v) => { v.defaultPlaybackRate = v.playbackRate = cfg.speed; });
-    e.target.blur();
-  };
-  $('#tbLoop').onclick = () => {
-    cfg.loop = !cfg.loop;
-    store.set('loop', cfg.loop);
-    renderToolbar();
-    eachVideo((v) => { v.loop = cfg.loop; });
-  };
-  $('#tbCaption').onclick = () => { cfg.caption = !cfg.caption; store.set('caption', cfg.caption); renderToolbar(); };
-
-  // In fullscreen the toolbar, caption and arrows fade out after a pause and return on movement.
-  let idleTimer;
-  function wake() {
-    lb.classList.remove('idle');
-    clearTimeout(idleTimer);
-    if (!inFs() || !lb.classList.contains('open')) return;
-    idleTimer = setTimeout(() => {
-      if (tb.matches(':hover') || !reportBox.hidden) return;
-      lb.classList.add('idle');
-    }, 2500);
-  }
-  lb.addEventListener('mousemove', wake);
-  lb.addEventListener('touchstart', wake, { passive: true });
-  ['fullscreenchange', 'webkitfullscreenchange'].forEach((ev) => document.addEventListener(ev, () => { fsChanged(); wake(); }));
-
-  /* ---- wheel steps through items; Ctrl+wheel zooms around the pointer, drag pans ---- */
-  let zoom = 1, panX = 0, panY = 0, drag = null, panned = false;
-  let wheelSum = 0, wheelAt = 0, stepAt = 0;
-  const media = () => stage.querySelector('img:not(.ghost),video:not(.ghost)');
-
-  function drawZoom() {
-    const m = media();
-    if (m) m.style.transform = zoom === 1 ? '' : `translate(${panX}px,${panY}px) scale(${zoom})`;
-    stage.classList.toggle('zoomed', zoom !== 1);
-  }
-
-  function resetZoom() {
-    zoom = 1; panX = 0; panY = 0; drag = null;
-    stage.classList.remove('panning');
-    drawZoom();
-  }
-
-  // Keeps the point under the pointer still: it moves by (1 - new/old) of its distance from the corner.
-  function zoomAt(z, cx, cy) {
-    const m = media();
-    z = clamp(z, 1, 10);
-    if (!m || z === 1) { resetZoom(); return; }
-    const r = m.getBoundingClientRect();
-    const k = 1 - z / zoom;
-    panX += (cx - r.left) * k;
-    panY += (cy - r.top) * k;
-    zoom = z;
-    drawZoom();
-  }
-
-  lb.addEventListener('wheel', (e) => {
-    const t = e.composedPath()[0];
-    if (!lb.classList.contains('open') || reportBox.contains(t) || cmtBox.contains(t)) return;   // those scroll themselves
-    const dy = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 600 : 1);   // lines / pages to pixels
-    if (e.ctrlKey) {                                   // also what a trackpad pinch sends
-      e.preventDefault();
-      zoomAt(zoom * Math.exp(-dy * 0.002), e.clientX, e.clientY);
-      return;
-    }
-    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
-    // A picture taller than the screen (width / actual size) scrolls to its end first.
-    const canScroll = dy > 0 ? stage.scrollTop + stage.clientHeight < stage.scrollHeight - 1 : stage.scrollTop > 0;
-    if (zoom === 1 && stage.contains(t) && canScroll) return;
-    e.preventDefault();
-    // Trackpads send a stream of small events: add them up and allow one step per gesture.
-    if (e.timeStamp - wheelAt > 200) wheelSum = 0;
-    wheelAt = e.timeStamp;
-    wheelSum += dy;
-    if (Math.abs(wheelSum) < 50 || e.timeStamp - stepAt < 300) return;
-    stepAt = e.timeStamp;
-    showSlide(lbIdx + Math.sign(wheelSum), Math.sign(wheelSum));
-    wheelSum = 0;
-  }, { passive: false });
-
-  lb.addEventListener('pointerdown', () => { panned = false; }, true);   // a drag with no click after it
-  stage.addEventListener('pointerdown', (e) => {
-    if (zoom === 1 || e.button) return;
-    e.preventDefault();
-    drag = { x: e.clientX - panX, y: e.clientY - panY, sx: e.clientX, sy: e.clientY };
-    stage.classList.add('panning');
-    try { stage.setPointerCapture(e.pointerId); } catch { /* ignore */ }
-  });
-  stage.addEventListener('pointermove', (e) => {
-    if (!drag) return;
-    panX = e.clientX - drag.x;
-    panY = e.clientY - drag.y;
-    drawZoom();
-  });
-  for (const ev of ['pointerup', 'pointercancel']) {
-    stage.addEventListener(ev, (e) => {
-      if (!drag) return;
-      panned = Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) > 4;
-      drag = null;
-      stage.classList.remove('panning');
-    });
-  }
-
-  // Swipe sideways for the next / previous item, swipe up to go back to the grid.
-  let touch = null;
-  lb.addEventListener('touchstart', (e) => {
-    const t = e.composedPath()[0];
-    if (e.touches.length > 1 || cmtBox.contains(t) || reportBox.contains(t)) { touch = null; return; }   // a pinch, or a panel that scrolls itself
-    // A picture taller than the screen scrolls to its end before a swipe up closes it.
-    const atEnd = stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 1;
-    touch = { x: e.touches[0].clientX, y: e.touches[0].clientY, atEnd };
-  }, { passive: true });
-  lb.addEventListener('touchend', (e) => {
-    const from = touch;
-    touch = null;
-    if (!from || zoom !== 1) return;                               // a zoomed picture is being panned
-    const dx = e.changedTouches[0].clientX - from.x, dy = e.changedTouches[0].clientY - from.y;
-    if (Math.abs(dx) > 60 && Math.abs(dx) >= Math.abs(dy)) showSlide(lbIdx + (dx < 0 ? 1 : -1));
-    else if (dy < -80 && -dy > Math.abs(dx) * 1.5 && from.atEnd) closeLb();
-  }, { passive: true });
-
-  /* ------------------------------------------------------------------ *
-   *  Open / close
-   * ------------------------------------------------------------------ */
-  // Reddit's page is hidden while the gallery is up, so its feed and players stop rendering.
-  let pageHidden = false, pageScroll = 0;
-  function coverPage(on) {
-    if (on === pageHidden) return;
-    pageHidden = on;
-    if (on) { pageScroll = scrollY; document.body.style.display = 'none'; }
-    else { document.body.style.display = ''; scrollTo(0, pageScroll); }
-  }
-
-  function openGallery(force) {
-    app.classList.add('open');
-    syncFab();
-    checkUpdate();
-    startScroll();
-    document.documentElement.style.overflow = 'hidden';
-    coverPage(true);
-    pushGuard();
-    if (force || S.href !== pageKey()) {
-      S.href = pageKey();
-      const s = sourceFromLocation();
-      S.path = s.path;
-      S.query = s.query;
-      reset();
-      S.restore = tabFocus.get(pageKey());   // reset() clears state, so ask after it
-      S.restoreTries = 0;
-    } else {
-      layoutCols();
-      maybeFill(false);
-    }
-  }
-
-  // hideGallery only hides the overlay; closeGallery is the user leaving gallery mode for this page.
-  function hideGallery() {
-    closeLb();
-    app.classList.remove('open');
-    S.tiles.forEach((t) => t.el._stop?.());
-    coverPage(false);
-    syncFab();
-    document.documentElement.style.overflow = '';
-  }
-
-  function closeGallery() {
-    tabPages.del(pageKey());
-    pageMem.del(memKey());
-    tabFocus.del(pageKey());
-    hideGallery();
-    if (onGuard()) history.back();                   // drop the guard entry, so the next Back really leaves
-  }
-
-  // While the gallery is open, Back must not leave the page. The open gallery sits on a
-  // history entry of its own (same address, marked in its state); a Back off that entry
-  // lands on the same page underneath, and the entry is put straight back.
-  // Browsers skip such an entry on Back until the page has been clicked, tapped or typed in.
-  let guardKey = '';
-  const onGuard = () => !!history.state?.rgGuard;
-  function pushGuard() {
-    guardKey = pageKey();
-    if (onGuard()) return;                           // a reload lands on the guard entry again
-    const state = history.state && typeof history.state === 'object' ? history.state : null;
-    try { history.pushState({ ...state, rgGuard: true }, '', location.href); } catch { /* ignore */ }
-  }
-
-  // Only a deliberate open is remembered for the page.
-  function toggle() {
-    if (app.classList.contains('open')) return closeGallery();
-    pageMem.add(memKey());
-    openGallery();
-  }
-
-  document.addEventListener('keydown', (e) => {
-    if (e.altKey && e.code === 'KeyG') { e.preventDefault(); toggle(); return; }
-    if (!app.classList.contains('open')) return;
-
-    const t = e.composedPath()[0];
-    const typing = t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable);
-    if (typing) { if (e.key === 'Escape') { t.blur(); hidePanels(); } return; }
-
-    const lbOpen = lb.classList.contains('open');
-    if (lbOpen) wake();
-    const panelOpen = !reportBox.hidden;
-    let handled = true;
-    if (e.key === 'Escape') (panelOpen ? hidePanels() : lbOpen && !cmtBox.hidden ? closeComments() : lbOpen ? closeLb() : closeGallery());
-    else if (lbOpen && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'c' || e.key === 'C')) toggleComments(S.slides[lbIdx].post);
-    else if (lbOpen && e.key === 'ArrowRight') showSlide(lbIdx + 1);
-    else if (lbOpen && e.key === 'ArrowLeft') showSlide(lbIdx - 1);
-    else if (lbOpen && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'f' || e.key === 'F')) toggleFullscreen();
-    else if (lbOpen && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'm' || e.key === 'M')) lbMute();
-    else if (lbOpen && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'z' || e.key === 'Z')) toggleFill();
-    else handled = false;
-    if (handled) { e.preventDefault(); e.stopPropagation(); }
-  }, true);
-
-  /* ------------------------------------------------------------------ *
    *  A Gallery button in Reddit's own bar, next to the sort and view
    *  controls at the top of a listing. Reddit's markup changes often, so
    *  edit BARS if the button stops appearing; the corner button is the
@@ -2414,10 +2471,6 @@ button.chip{font-weight:500}
     '.tabmenu',                                               // old.reddit.com
   ];
   let inlineBtn = null;
-
-  function syncFab() {
-    fab.hidden = app.classList.contains('open') || !!(inlineBtn && inlineBtn.isConnected);
-  }
 
   // Walks open shadow roots too, since Reddit's own elements keep their markup inside one.
   function deepFind(sels, budget = 4000) {
@@ -2476,6 +2529,31 @@ button.chip{font-weight:500}
     syncFab();
   }
 
+  let mountTick = 0;
+  SITES.reddit = {
+    cls: 'reddit',
+    referrer: 'no-referrer',
+    hidePage: true,              // Reddit's own feed and players stop rendering under the gallery
+    load: redditLoad,
+    postHref: (post) => location.origin + post.permalink + HANDOFF,
+    key(e, lbOpen) {
+      if (!lbOpen || e.ctrlKey || e.metaKey || e.altKey || !/^c$/i.test(e.key)) return false;
+      toggleComments(S.slides[lbIdx].post);
+      return true;
+    },
+    fabHidden: () => !!(inlineBtn && inlineBtn.isConnected),
+    button(deep, rebuilt) { if (rebuilt) dropInline(); mountInline(deep); },
+    start() {
+      setInterval(() => { if (!document.hidden && !app.classList.contains('open')) mountInline(++mountTick % 4 === 0); }, 1200);   // look inside shadow roots now and then
+      mountInline(true);
+      setTimeout(() => mountInline(true), 1500);       // the bar often arrives after the feed
+    },
+  };
+
+
+  const site = SITES[REDDIT ? 'reddit' : 'web'];
+  app.classList.add(site.cls);
+
   /* ------------------------------------------------------------------ *
    *  Menu commands + remembered pages (Reddit navigates without reloads)
    * ------------------------------------------------------------------ */
@@ -2485,8 +2563,6 @@ button.chip{font-weight:500}
   renderActions();
   restartGalleryTimer();
   $('#update').onclick = () => { try { window.open(UPDATE_URL, '_blank', 'noopener'); } catch { /* ignore */ } };
-  GM_registerMenuCommand('Open gallery (Alt+G)', toggle);
-  GM_registerMenuCommand('Check for an update now', () => checkUpdate(true));
 
   // Opened in a new tab from the gallery: adopt gallery mode for this page, then tidy the URL.
   if (location.hash === HANDOFF) {
@@ -2507,8 +2583,7 @@ button.chip{font-weight:500}
     const isOpen = app.classList.contains('open');
     if (wantGallery()) { if (!isOpen || keyChanged) openGallery(true); }
     else if (isOpen && keyChanged) hideGallery();    // went Back/Forward to a page that isn't in gallery mode
-    dropInline();                                    // Reddit rebuilds the bar on navigation
-    mountInline(true);
+    site.button(true, true);                         // the site may have rebuilt the place its button lives in
   }
   setInterval(navCheck, 600);
   addEventListener('popstate', () => {               // Back/Forward: no need to wait for the poll
@@ -2518,10 +2593,21 @@ button.chip{font-weight:500}
     else navCheck();
   });
 
-  let mountTick = 0;
-  setInterval(() => { if (!document.hidden && !app.classList.contains('open')) mountInline(++mountTick % 4 === 0); }, 1200);   // look inside shadow roots now and then
-  mountInline(true);
-  setTimeout(() => mountInline(true), 1500);         // the bar often arrives after the feed
+  site.start();
+
 
   if (wantGallery()) openGallery(true);
+  return { toggle, checkUpdate, syncFab };
+  }   // main
+
+  /* ------------------------------------------------------------------ *
+   *  Start. Reddit gets the gallery at once. Any other site gets nothing
+   *  but a key listener and one look for a media grid, until it is needed.
+   * ------------------------------------------------------------------ */
+  let gallery = null;
+  const start = () => gallery || (gallery = main());
+  const menu = (label, fn) => { try { GM_registerMenuCommand(label, fn); } catch { /* no menu here */ } };
+  menu('Open gallery (Alt+G)', () => start().toggle());
+  menu('Check for an update now', () => start().checkUpdate(true));
+  if (REDDIT) { start(); return; }
 })();
