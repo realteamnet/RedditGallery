@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Gallery View
 // @namespace    https://violentmonkey.github.io/
-// @version      2.1.0
+// @version      2.2.0
 // @description  Show any Reddit page (subreddit, user, search, custom feed / multireddit, front page) as a media gallery with infinite scroll and a lightbox.
 // @icon         https://www.redditstatic.com/shreddit/assets/favicon/192x192.png
 // @homepageURL  https://github.com/realteamnet/RedditGallery
@@ -145,13 +145,23 @@
     return false;
   };
 
+  const openUpdate = () => { try { window.open(UPDATE_URL, '_blank', 'noopener'); } catch { /* ignore */ } };
+
+  // A newer version is offered in a small bar at the top of the page, wherever the gallery
+  // or its button is present. Nothing opens until you ask; "Later" hides the bar for that
+  // version, and the header button stays.
   function offerUpdate(v) {
     const b = $('#update');
     b.textContent = `Update to ${v}`;
     b.hidden = false;
-    if (store.get('offered', '') === v) return;      // one tab per new version, not one per open
-    store.set('offered', v);
-    try { window.open(UPDATE_URL, '_blank', 'noopener'); } catch { /* the button is still there */ }
+    store.set('newVersion', v);                      // so the next page can offer it without asking the server
+    if (store.get('offered', '') === v || $('.upd')) return;
+    const bar = el('div', 'upd'), go = el('button', 'go', 'Update'), no = el('button', 'no', 'Later');
+    bar.setAttribute('role', 'status');
+    bar.append(el('span', '', `Gallery View ${v} is available`), go, no);
+    go.onclick = () => { bar.remove(); openUpdate(); };
+    no.onclick = () => { bar.remove(); store.set('offered', v); };
+    root.append(bar);                                // after .app, so it shows over an open gallery too
   }
 
   function checkUpdate(force) {
@@ -333,6 +343,11 @@ button,select,input{font:inherit;color:inherit}
 .fab,.app{z-index:2147483647}
 .fab{position:fixed;right:18px;bottom:18px;font:600 13px/1 "Avenir Next","Segoe UI Variable",system-ui,sans-serif;color:#1c1d20;background:#e9b44c;border:0;border-radius:999px;padding:11px 16px;cursor:pointer;box-shadow:0 6px 22px rgba(0,0,0,.4);opacity:.92;transition:opacity .15s,transform .15s}
 .fab:hover{opacity:1;transform:translateY(-1px)}
+.upd{position:fixed;z-index:2147483647;top:12px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;max-width:calc(100vw - 24px);padding:7px 7px 7px 16px;border-radius:999px;background:#1f2024;color:#ece9e3;border:1px solid #393c42;box-shadow:0 10px 30px rgba(0,0,0,.5);font:13px/1.3 "Avenir Next","Segoe UI Variable",system-ui,sans-serif;white-space:nowrap;color-scheme:dark}
+.upd span{overflow:hidden;text-overflow:ellipsis}
+.upd button{height:30px;padding:0 14px;border-radius:999px;cursor:pointer;font:inherit}
+.upd .go{background:#e9b44c;color:#1c1d20;border:0;font-weight:600}
+.upd .no{background:transparent;color:#9a9ca3;border:1px solid #393c42}
 .app{--bg:#17181b;--panel:#1f2024;--ctl:#2a2c31;--ctl-h:#34373d;--line:#393c42;--text:#ece9e3;--mute:#9a9ca3;--faint:#6c6f76;--acc:#e9b44c;--acc-ink:#1c1d20;
   position:fixed;inset:0;display:none;flex-direction:column;background:var(--bg);color:var(--text);color-scheme:dark;font:14px/1.4 "Avenir Next","Segoe UI Variable",system-ui,sans-serif}
 .app.open{display:flex}
@@ -622,7 +637,7 @@ button.chip{font-weight:500}
     </div>
     <div class="end keep">
       <span id="count" class="dim"></span>
-      <button id="update" class="primary" title="A newer version is on the server. Opens it so Violentmonkey can install it." hidden></button>
+      <button id="update" class="primary" title="A newer version is available. Opens it so your userscript manager can install it." hidden></button>
       <button id="close" title="Leave gallery view and go back to the page (Esc)">Exit gallery</button>
       <button id="barToggle" class="icon" aria-expanded="true"></button>
     </div>
@@ -2562,7 +2577,9 @@ button.chip{font-weight:500}
   renderToolbar();
   renderActions();
   restartGalleryTimer();
-  $('#update').onclick = () => { try { window.open(UPDATE_URL, '_blank', 'noopener'); } catch { /* ignore */ } };
+  $('#update').onclick = openUpdate;
+  if (newerThan(store.get('newVersion', ''), VERSION)) offerUpdate(store.get('newVersion', ''));
+  checkUpdate();                                     // at most one request per 15 minutes
 
   // Opened in a new tab from the gallery: adopt gallery mode for this page, then tidy the URL.
   if (location.hash === HANDOFF) {
