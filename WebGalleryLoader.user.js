@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Web Gallery View (auto-updating loader)
 // @namespace    https://violentmonkey.github.io/
-// @version      1.0.0
+// @version      1.1.0
 // @description  Runs the latest Web Gallery View straight from GitHub, so new versions arrive by themselves with no install prompt. Install this INSTEAD of WebGalleryView.user.js.
 // @homepageURL  https://github.com/realteamnet/RedditGallery
 // @downloadURL  https://raw.githubusercontent.com/realteamnet/RedditGallery/main/WebGalleryLoader.user.js
@@ -36,7 +36,9 @@
 (() => {
   'use strict';
 
-  const SOURCE = 'https://raw.githubusercontent.com/realteamnet/RedditGallery/main/WebGalleryView.user.js';
+  const REPO = 'https://raw.githubusercontent.com/realteamnet/RedditGallery/';
+  const VERSION_FILE = REPO + 'main/version.json';
+  const FILE = 'WebGalleryView.user.js';
   const EVERY = 15 * 60 * 1000;            // look for a newer copy at most this often
   const get = (k, d) => { try { const v = GM_getValue(k); return v === undefined ? d : v; } catch { return d; } };
   const set = (k, v) => { try { GM_setValue(k, v); } catch { /* ignore */ } };
@@ -56,24 +58,34 @@
     }
   }
 
-  function refresh(then) {
-    set('loader.at', Date.now());
+  function download(url, then) {
     try {
       GM_xmlhttpRequest({
-        method: 'GET',
-        url: SOURCE + '?t=' + Date.now(),
-        headers: { 'Cache-Control': 'no-cache' },
-        timeout: 15000,
-        onload: (r) => {
-          const code = r.responseText || '';
-          if (r.status !== 200 || !genuine(code)) { then?.(''); return; }   // an error page, not the script
-          if (code !== get('loader.code', '')) set('loader.code', code);
-          then?.(code);
-        },
-        onerror: () => then?.(''),
-        ontimeout: () => then?.(''),
+        method: 'GET', url, headers: { 'Cache-Control': 'no-cache' }, timeout: 15000,
+        onload: (r) => then(r.status === 200 ? r.responseText || '' : ''),
+        onerror: () => then(''),
+        ontimeout: () => then(''),
       });
-    } catch { then?.(''); }
+    } catch { then(''); }
+  }
+
+  // GitHub serves every address from a 5-minute cache, so the gallery is never fetched from
+  // the moving "main" address. A small version file says which release is current, and the
+  // gallery comes from that release's own address (its git tag), whose content never changes.
+  function refresh(then) {
+    set('loader.at', Date.now());
+    download(VERSION_FILE + '?t=' + Date.now(), (text) => {
+      let info = null;
+      try { info = JSON.parse(text); } catch { /* an error page, not the version file */ }
+      const stored = get('loader.code', '');
+      if (!info || !/^\d+(\.\d+)*$/.test(info.version || '') || !/^[\w.-]+$/.test(info.ref || '')) { then?.(''); return; }
+      if (info.version === versionOf(stored)) { then?.(stored); return; }          // already have it
+      download(REPO + info.ref + '/' + FILE, (code) => {
+        if (!genuine(code) || versionOf(code) !== info.version) { then?.(''); return; }   // keep the last good copy
+        set('loader.code', code);
+        then?.(code);
+      });
+    });
   }
 
   try {
