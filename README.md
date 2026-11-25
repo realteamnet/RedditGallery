@@ -12,18 +12,29 @@ with infinite scroll and a lightbox.
 One click installs it if a userscript manager (Violentmonkey, Tampermonkey,
 Greasemonkey) is loaded.
 
-**Reddit only?** [RedditGallery.user.js](https://raw.githubusercontent.com/realteamnet/RedditGallery/main/RedditGallery.user.js)
-is the Reddit-only edition: the same code and the same version, running on reddit.com and nowhere else.
-Install one or the other. If both are installed, only one of them runs on Reddit.
+## The files
 
-**Want updates with no prompt at all?** Install
-[WebGalleryLoader.user.js](https://raw.githubusercontent.com/realteamnet/RedditGallery/main/WebGalleryLoader.user.js)
-*instead of* Web Gallery View. It is a small loader that runs the latest
-[WebGalleryView.user.js](WebGalleryView.user.js) straight from this repository, so a new
-version is in use on the next page you open. The trade-off: whatever is on this
+| File | What it is |
+| --- | --- |
+| [WebGalleryView.user.js](WebGalleryView.user.js) | **Install this.** A small loader that keeps the gallery up to date by itself. |
+| [WebGalleryCore.user.js](WebGalleryCore.user.js) | The gallery itself: all the code. The loader runs the latest copy of this file. |
+| [RedditGallery.user.js](RedditGallery.user.js) | Reddit-only edition: the same gallery code, running on reddit.com and nowhere else. |
+
+**Web Gallery View updates itself.** The loader keeps a copy of
+`WebGalleryCore.user.js`, runs it on every page, and replaces it in the background when
+this repository has a newer one, so a new version is in use on the next page you open
+(GitHub's own cache can delay that by a few minutes). The trade-off: whatever is on this
 repository's main branch runs on every site you visit without you confirming it first.
 Some sites with a strict security policy may refuse to run fetched code; the gallery is
 then simply absent there.
+
+**Prefer to confirm every update yourself?** Install
+[WebGalleryCore.user.js](https://raw.githubusercontent.com/realteamnet/RedditGallery/main/WebGalleryCore.user.js)
+(any site) or
+[RedditGallery.user.js](https://raw.githubusercontent.com/realteamnet/RedditGallery/main/RedditGallery.user.js)
+(Reddit only) instead. Those are ordinary userscripts: they show a small "update
+available" bar and your userscript manager installs the new version. Install only one of
+the three; if more are installed, only one runs on a page.
 
 ## Install
 
@@ -36,8 +47,8 @@ then simply absent there.
 
    Tampermonkey and Greasemonkey should also work.
 2. Click **[Install Web Gallery View](https://raw.githubusercontent.com/realteamnet/RedditGallery/main/WebGalleryView.user.js)**
-   (or the Reddit-only edition above): the manager opens its install page.
-3. Confirm. Updates come automatically from the same URL.
+   (or one of the other files above): the manager opens its install page.
+3. Confirm. From then on the gallery keeps itself up to date.
 
 ## Use
 
@@ -61,8 +72,9 @@ then simply absent there.
 - **Lightbox** — wheel, arrow keys or a sideways swipe to step through items, swipe up
   to go back to the grid, Ctrl+wheel / pinch to zoom (up to 10×) and drag to pan, seek
   bar, loop, fit/fill, fullscreen.
-- Checks for a newer version (at most every 15 minutes) and offers it in a small bar at
-  the top of the page. Nothing is opened or installed until you choose **Update**.
+- Looks for a newer version at most every 15 minutes. Web Gallery View takes it by
+  itself; the other two files offer it in a small bar at the top of the page, and nothing
+  is installed until you choose **Update**.
 
 ### On any site (best effort)
 

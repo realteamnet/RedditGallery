@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Gallery View
 // @namespace    https://violentmonkey.github.io/
-// @version      2.2.0
+// @version      3.0.0
 // @description  Show any Reddit page (subreddit, user, search, custom feed / multireddit, front page) as a media gallery with infinite scroll and a lightbox.
 // @icon         https://www.redditstatic.com/shreddit/assets/favicon/192x192.png
 // @homepageURL  https://github.com/realteamnet/RedditGallery
@@ -20,7 +20,7 @@
 // @connect      api.redgifs.com
 // @connect      media.redgifs.com
 // ==/UserScript==
-// Generated from WebGalleryView.user.js (base + reddit.com plugin). Edit that file, not this one.
+// Generated from WebGalleryCore.user.js (base + reddit.com plugin). Edit that file, not this one.
 
 (() => {
   'use strict';
