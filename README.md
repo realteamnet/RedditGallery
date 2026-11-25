@@ -87,6 +87,9 @@ if more are installed, only one runs on a page.
   the largest `srcset` entry, lazy-loading attributes, WordPress-style size suffixes.
 - Loads more as you scroll: it drives the site's own infinite scroll underneath, and
   follows "next page" links on the same site.
+- Video sites that show a still which plays a short clip on hover: the tile plays that
+  clip, and the expanded view fetches the item's own page and plays the full video from
+  it. A plain still whose page holds a video becomes that video in the expanded view.
 - Not handled yet: sites where the full-size picture only exists on a separate detail
   page, "Load more" buttons, and streamed videos (those show their poster and a link).
 - Until used, it adds nothing to a page: no button, no timers.

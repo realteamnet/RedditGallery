@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Web Gallery View (core)
 // @namespace    https://violentmonkey.github.io/
-// @version      3.2.0
+// @version      3.3.0
 // @description  Show a page's pictures, GIFs and videos as a media gallery with infinite scroll and a lightbox. Works best-effort on any site with a media grid; Reddit has full support (feeds, sorting, votes, comments).
 // @homepageURL  https://github.com/realteamnet/RedditGallery
 // @downloadURL  https://raw.githubusercontent.com/realteamnet/RedditGallery/main/WebGalleryCore.user.js
@@ -137,6 +137,17 @@
     try { const x = new URL(u, base); return /^https?:$/.test(x.protocol) ? x.href : ''; } catch { return ''; }
   };
 
+  // Video sites show a still that plays a short clip on hover; the clip's address sits in a
+  // data attribute of the picture, its link or the card around them.
+  function previewOf(n, a, base) {
+    const stop = a ? a.parentElement : null;
+    for (let p = n, i = 0; p && p.nodeType === 1 && i < 4; p = p.parentElement, i++) {
+      for (const at of p.attributes) if (at.name.startsWith('data-') && VID_EXT.test(at.value)) return abs(at.value, base);
+      if (p === stop) break;
+    }
+    return '';
+  }
+
   function biggestInSrcset(set, base) {
     let best = '', score = 0;
     for (const part of (set || '').split(/,\s+/)) {
@@ -187,12 +198,13 @@
       const thumb = abs(lazy || n.currentSrc || n.getAttribute('src') || '', base) || big;
       const [a, href] = linkOf(n);
       const direct = IMG_EXT.test(href) || VID_EXT.test(href) ? href : '';
-      const src = direct || big || unsized(thumb);
+      const preview = direct ? '' : previewOf(n, a, base);
+      const src = direct || preview || big || unsized(thumb);
       if (!src || /\.svg(?:[?#]|$)/i.test(src)) continue;
       const video = VID_EXT.test(src);
       add(a || n, {
         type: video ? 'video' : 'image', src, thumb: thumb || (video ? '' : src), w: d.w, h: d.h, known: !!(d.w && d.h),
-        link: direct ? '' : href, animated: GIF_EXT.test(src), gif: GIF_EXT.test(src),
+        link: direct ? '' : href, tile: preview, animated: GIF_EXT.test(src), gif: GIF_EXT.test(src),
         title: n.getAttribute('alt') || n.getAttribute('title') || a?.getAttribute('title') || a?.getAttribute('aria-label') || '',
       });
     }
@@ -1068,7 +1080,7 @@ button.chip{font-weight:500}
     v._small = small;
     if (src !== item.src) v.addEventListener('error', () => { v.src = item.src; v.play().catch(() => {}); }, { once: true });
     if (item.redgifs && (!small || !cfg.muted)) upgradeRedgifs(v);          // tiles fetch it only when sound is on
-    else if (item.sound === undefined && !item.audio && !item.redgifs) watchSound(v, item);
+    else if (item.sound === undefined && !item.audio && !item.redgifs && src === item.src) watchSound(v, item);   // a preview clip says nothing about the real file
     if (item.audio) {
       const a = new Audio();
       a.loop = true;
@@ -1784,6 +1796,8 @@ button.chip{font-weight:500}
       }, { once: true });
     }
     if (item.type === 'video') startVideo(m);
+    // The grid may only have had a still or a short clip of this item.
+    site.full?.(item)?.then((changed) => { if (changed && S.slides[lbIdx]?.item === item) showSlide(lbIdx); });
     lb.querySelectorAll('.vo').forEach((n) => { n.hidden = item.type !== 'video'; });   // video-only controls
     renderMute();                                     // greyed out when this video is known to be silent
     renderNav();
@@ -2751,6 +2765,10 @@ button.chip{font-weight:500}
       if (g.done.has(c.node)) continue;
       g.done.add(c.node);
       const item = { type: c.type, src: c.src, thumb: c.thumb, w: c.w, h: c.h, animated: !!c.animated, gif: !!c.gif, external: !!c.external };
+      if (c.tile) item.tile = c.tile;
+      // A still or a hover clip that links to a page of its own: the real video may be there.
+      if (c.link && !c.external && !c.gif && (c.tile || c.type === 'image') && c.link.split('#')[0] !== location.href.split('#')[0] &&
+        new URL(c.link).origin === location.origin) item.page = c.link;
       const key = mediaKey([item]);
       if (key) {
         if (S.media.has(key)) continue;              // the same file twice on one page is not a repost
@@ -2841,11 +2859,62 @@ button.chip{font-weight:500}
     }
   }
 
+  // The video file a detail page plays, best quality first: its <video>, its og:video, or
+  // the address in its player set-up script.
+  const VID_FILE = /\.(?:mp4|webm|m4v|mov)(?=[/?#]|$)/i;
+  function videoIn(html, base) {
+    const doc = new DOMParser().parseFromString(trusted(html), 'text/html');
+    const found = [];
+    for (const n of doc.querySelectorAll('video[src],video source[src]')) {
+      found.push([n.getAttribute('src'), ['label', 'title', 'res', 'size'].map((k) => n.getAttribute(k) || '').join(' ')]);
+    }
+    for (const n of doc.querySelectorAll('meta[property^="og:video"],meta[name="twitter:player:stream"]')) found.push([n.getAttribute('content'), '']);
+    for (const m of html.matchAll(/["']?(?:video_(?:alt_)?url\d*|contentUrl|videoUrl|file|src)["']?\s*[:=]\s*["'](https?:[^"'\s]+)["']/g)) {
+      found.push([m[1].replace(/\\\//g, '/'), '']);
+    }
+    let best = '', score = -1;
+    for (const [u, label] of found) {
+      const url = VID_FILE.test(u || '') ? abs(u, base) : '';
+      const q = +(/(\d{3,4})p?\b/.exec(label) || /(\d{3,4})p\b/.exec(url) || [0, 0])[1];
+      if (url && q > score) { best = url; score = q; }
+    }
+    return best;
+  }
+
+  const pageVideo = new Map();   // detail page -> promise of its video file ('' when it has none)
+  const videoFrom = new Map();   // video file -> the page it was found on
+  // Resolves to true once the item has been given the video from its own page.
+  function webFull(item) {
+    const page = item.page;
+    if (!page) return null;
+    if (!pageVideo.has(page)) {
+      pageVideo.set(page, fetch(page, { credentials: 'same-origin' })
+        .then((r) => (r.ok ? r.text() : ''))
+        .then((html) => {
+          const url = html ? videoIn(html, page) : '';
+          // The same file on several pages is the site's own clip (an advert, a banner), not this item.
+          if (!url || (videoFrom.has(url) && videoFrom.get(url) !== page)) return '';
+          videoFrom.set(url, page);
+          return url;
+        })
+        .catch(() => ''));
+    }
+    return pageVideo.get(page).then((url) => {
+      if (item.page !== page) return false;
+      item.page = '';
+      if (!url || url === item.src) return false;
+      if (item.type === 'image') item.thumb = item.thumb || item.src;
+      Object.assign(item, { type: 'video', src: url, sound: undefined, animated: false, gif: false });
+      return true;
+    });
+  }
+
   SITES.web = {
     cls: 'web',
     referrer: '',                // other sites often refuse their media without their own referer
     hidePage: false,             // the page stays rendered: its lazy loading and infinite scroll feed the gallery
     load: webLoad,
+    full: webFull,
     postHref: (post) => post.link,
     key: () => false,
     fabHidden: fabOff,

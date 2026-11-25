@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Gallery View
 // @namespace    https://violentmonkey.github.io/
-// @version      3.2.0
+// @version      3.3.0
 // @description  Show any Reddit page (subreddit, user, search, custom feed / multireddit, front page) as a media gallery with infinite scroll and a lightbox.
 // @icon         https://www.redditstatic.com/shreddit/assets/favicon/192x192.png
 // @homepageURL  https://github.com/realteamnet/RedditGallery
@@ -946,7 +946,7 @@ button.chip{font-weight:500}
     v._small = small;
     if (src !== item.src) v.addEventListener('error', () => { v.src = item.src; v.play().catch(() => {}); }, { once: true });
     if (item.redgifs && (!small || !cfg.muted)) upgradeRedgifs(v);          // tiles fetch it only when sound is on
-    else if (item.sound === undefined && !item.audio && !item.redgifs) watchSound(v, item);
+    else if (item.sound === undefined && !item.audio && !item.redgifs && src === item.src) watchSound(v, item);   // a preview clip says nothing about the real file
     if (item.audio) {
       const a = new Audio();
       a.loop = true;
@@ -1662,6 +1662,8 @@ button.chip{font-weight:500}
       }, { once: true });
     }
     if (item.type === 'video') startVideo(m);
+    // The grid may only have had a still or a short clip of this item.
+    site.full?.(item)?.then((changed) => { if (changed && S.slides[lbIdx]?.item === item) showSlide(lbIdx); });
     lb.querySelectorAll('.vo').forEach((n) => { n.hidden = item.type !== 'video'; });   // video-only controls
     renderMute();                                     // greyed out when this video is known to be silent
     renderNav();
