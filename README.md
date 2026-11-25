@@ -45,7 +45,10 @@ version. Install only one; if both are installed, only one runs on a page.
 - **On Reddit** the button is on every page. **On any other site** it appears by itself
   on pages where a grid of media is found, and the userscript menu can hide it for a
   site.
-- **Exit gallery** (or Esc) returns to the page where you left off.
+- The **×** at the top right (or Esc) leaves the gallery and returns to the page where
+  you left off. The arrow next to it hides or shows the options; so does a double click
+  on the bar. Hidden, the bar is a single line with the title, the item count and those
+  two buttons.
 - The version is shown next to "Gallery" in the header and in the userscript menu.
 - The browser's Back button does not leave gallery view; exit the gallery first.
 - Gallery view is remembered per page: once opened, that page opens as a gallery from

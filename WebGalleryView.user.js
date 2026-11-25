@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Web Gallery View
 // @namespace    https://violentmonkey.github.io/
-// @version      3.5.3
+// @version      3.6.0
 // @description  Show a page's pictures, GIFs and videos as a media gallery with infinite scroll and a lightbox. Works best-effort on any site with a media grid; Reddit has full support (feeds, sorting, votes, comments).
 // @homepageURL  https://github.com/realteamnet/RedditGallery
 // @downloadURL  https://raw.githubusercontent.com/realteamnet/RedditGallery/main/WebGalleryView.user.js
@@ -486,8 +486,16 @@ button,select,input{font:inherit;color:inherit}
   position:fixed;inset:0;display:none;flex-direction:column;background:var(--bg);color:var(--text);color-scheme:dark;font:14px/1.4 "Avenir Next","Segoe UI Variable",system-ui,sans-serif}
 .app.open{display:flex}
 
-header{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:10px 16px;background:var(--panel);border-bottom:1px solid #2b2d32;box-shadow:0 1px 12px rgba(0,0,0,.25);position:relative;z-index:1}
-.bar-up header{padding-block:6px}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:10px 96px 10px 16px;background:var(--panel);border-bottom:1px solid #2b2d32;box-shadow:0 1px 12px rgba(0,0,0,.25);position:relative;z-index:1}
+.bar-up header{padding-block:5px;min-height:42px;flex-wrap:nowrap}
+.bar-up .end{min-width:0}
+.bar-up #count{min-width:0;overflow:hidden;text-overflow:ellipsis;margin-right:0}
+.win{position:absolute;top:9px;right:12px;display:flex;gap:6px}
+.bar-up .win{top:5px}
+.win svg{display:block;margin:auto;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+#barToggle svg{transition:transform .15s}
+.bar-up #barToggle svg{transform:rotate(180deg)}
+#close:hover{background:#b3402f;border-color:#b3402f;color:#fff}
 .bar-up header>*:not(.keep){display:none}
 .brand small{font-size:10.5px;font-weight:500;letter-spacing:.02em;color:var(--faint)}
 .brand{display:inline-flex;align-items:center;gap:8px;font-weight:700;letter-spacing:.01em;color:var(--acc);white-space:nowrap}
@@ -695,6 +703,11 @@ button.chip{font-weight:500}
 
 @media (max-width:700px){
   header{padding:8px 10px;gap:8px}
+  .brand{flex:1 1 100%;min-height:32px}
+  .bar-up header{padding-right:86px}
+  .bar-up .brand{flex:0 0 auto;min-height:0}
+  .win{top:8px;right:8px}
+  .bar-up .win{top:5px}
   #gFeed{flex-basis:100%}
   .end{margin-left:0}
   .opts{gap:8px 14px}
@@ -782,8 +795,10 @@ button.chip{font-weight:500}
     <div class="end keep">
       <span id="count" class="dim"></span>
       <button id="update" class="primary" title="A newer version is available. Opens it so your userscript manager can install it." hidden></button>
-      <button id="close" title="Leave gallery view and go back to the page (Esc)">Exit gallery</button>
-      <button id="barToggle" class="icon" aria-expanded="true"></button>
+    </div>
+    <div class="win keep">
+      <button id="barToggle" class="icon" aria-expanded="true"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 15.5 12 8.5l7 7"/></svg></button>
+      <button id="close" class="icon" title="Exit gallery view and go back to the page (Esc)" aria-label="Exit gallery"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
     </div>
     <div class="opts">
       <div class="group">
@@ -1626,8 +1641,7 @@ button.chip{font-weight:500}
   function renderBar() {
     app.classList.toggle('bar-up', cfg.barUp);
     const b = $('#barToggle');
-    b.textContent = cfg.barUp ? '▼' : '▲';
-    b.title = cfg.barUp ? 'Show the toolbar' : 'Collapse the toolbar';
+    b.title = cfg.barUp ? 'Show the options (or double-click the bar)' : 'Hide the options (or double-click the bar)';
     b.setAttribute('aria-expanded', String(!cfg.barUp));
   }
   renderBar();
