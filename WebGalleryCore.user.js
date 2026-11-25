@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Web Gallery View (core)
 // @namespace    https://violentmonkey.github.io/
-// @version      3.0.0
+// @version      3.2.0
 // @description  Show a page's pictures, GIFs and videos as a media gallery with infinite scroll and a lightbox. Works best-effort on any site with a media grid; Reddit has full support (feeds, sorting, votes, comments).
 // @homepageURL  https://github.com/realteamnet/RedditGallery
 // @downloadURL  https://raw.githubusercontent.com/realteamnet/RedditGallery/main/WebGalleryCore.user.js
@@ -257,6 +257,8 @@
   const UPDATE_URL = metaKey(INFO.scriptMetaStr, 'updateURL') || metaKey(INFO.scriptMetaStr, 'downloadURL') || '';
   const CHECK_MS = 15 * 60 * 1000;     // at most one request this often
   const VERSION = INFO.script?.version || '0';
+  // Under the loader (WebGalleryView.user.js) this is the gallery's version, and INFO.loader the loader's.
+  const ABOUT = `Web Gallery View ${VERSION}` + (INFO.loader ? ` (loader ${INFO.loader})` : '');
 
   const newerThan = (a, b) => {
     const pa = String(a).split('.').map(Number), pb = String(b).split('.').map(Number);
@@ -477,6 +479,7 @@ button,select,input{font:inherit;color:inherit}
 header{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:10px 16px;background:var(--panel);border-bottom:1px solid #2b2d32;box-shadow:0 1px 12px rgba(0,0,0,.25);position:relative;z-index:1}
 .bar-up header{padding-block:6px}
 .bar-up header>*:not(.keep){display:none}
+.brand small{font-size:10.5px;font-weight:500;letter-spacing:.02em;color:var(--faint)}
 .brand{display:inline-flex;align-items:center;gap:8px;font-weight:700;letter-spacing:.01em;color:var(--acc);white-space:nowrap}
 .brand i{width:16px;height:16px;background:
   linear-gradient(var(--acc) 0 0) 0 0/7px 7px no-repeat,linear-gradient(var(--acc) 0 0) 9px 0/7px 10px no-repeat,
@@ -601,6 +604,9 @@ button.chip{font-weight:500}
 .nav{position:absolute;z-index:1;top:50%;transform:translateY(-50%);width:52px;height:52px;padding:0 0 4px;display:flex;align-items:center;justify-content:center;border-radius:50%;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.06);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);color:#f3f1ec;font-size:32px;line-height:1;cursor:pointer;opacity:.75}
 .nav:hover{opacity:1;background:rgba(255,255,255,.14)}
 .prev{left:16px}.next{right:16px}
+.nav.in{border-color:rgba(233,180,76,.55);color:var(--acc)}
+.nav.in::after{content:attr(data-n);position:absolute;top:100%;margin-top:7px;font-size:11px;font-weight:600;letter-spacing:.03em;line-height:1;white-space:nowrap;color:var(--acc);text-shadow:0 1px 3px rgba(0,0,0,.8)}
+.nav.end,.nav.end:hover{opacity:.2;background:rgba(255,255,255,.06);cursor:default}
 .toolbar,.cap,.nav{transition:opacity .25s,background .15s}
 .lb.idle{cursor:none}
 .lb.idle .toolbar,.lb.idle .postbar,.lb.idle .cap,.lb.idle .nav{opacity:0;pointer-events:none}
@@ -731,7 +737,7 @@ button.chip{font-weight:500}
 <button class="fab" title="Open gallery (Alt+G)">Gallery</button>
 <div class="app">
   <header>
-    <span class="brand keep"><i></i>Gallery</span>
+    <span class="brand keep"><i></i>Gallery<small id="ver"></small></span>
     <div class="gr rd" id="gFeed">
       <span class="joined">
         <input id="src" type="text" spellcheck="false" placeholder="r/pics+aww, user/name/m/feed, or a reddit URL">
@@ -1325,6 +1331,7 @@ button.chip{font-weight:500}
     }
     S.tiles.push(rec);
     place(rec);
+    if (lbIdx === first - 1) renderNav();
     lazy.observe(tile);
     if (tile._vid || tile._gallery) io.observe(tile);
   }
@@ -1719,6 +1726,23 @@ button.chip{font-weight:500}
     };
   }
 
+  // The arrows say what a step does. A single chevron in the accent colour, with the position
+  // it leads to underneath, stays inside this post's own pictures; a double chevron moves on
+  // to another post. At either end of the feed the arrow is dimmed but still takes the click,
+  // which would otherwise land on the backdrop and close the lightbox.
+  function renderNav() {
+    const cur = S.slides[lbIdx];
+    if (!cur) return;
+    for (const [sel, d, one, two, word, key] of [['.prev', -1, '‹', '«', 'Previous', '←'], ['.next', 1, '›', '»', 'Next', '→']]) {
+      const b = $(sel), to = S.slides[lbIdx + d], same = !!to && to.post === cur.post;
+      b.textContent = same || !to ? one : two;
+      b.classList.toggle('in', same);
+      b.classList.toggle('end', !to);
+      b.dataset.n = same ? `${to.pos + 1} / ${to.count}` : '';
+      b.title = !to ? `No ${word.toLowerCase()} item` : `${word} ${same ? 'item in this post' : 'post'} (${key})`;
+    }
+  }
+
   // slide: 1 or -1 (wheel navigation) slides the old item out left/right and the new one in.
   function showSlide(i, slide = 0) {
     if (i < 0 || i >= S.slides.length) return;
@@ -1762,6 +1786,7 @@ button.chip{font-weight:500}
     if (item.type === 'video') startVideo(m);
     lb.querySelectorAll('.vo').forEach((n) => { n.hidden = item.type !== 'video'; });   // video-only controls
     renderMute();                                     // greyed out when this video is known to be silent
+    renderNav();
     const amb = item.type === 'image' ? item.thumb || item.src : item.thumb;
     lb.style.setProperty('--amb', amb ? `url("${amb.replace(/["\\\n]/g, encodeURIComponent)}")` : 'none');
 
@@ -1975,23 +2000,45 @@ button.chip{font-weight:500}
     });
   }
 
-  // Swipe sideways for the next / previous item, swipe up to go back to the grid.
+  // Swipe sideways for the next / previous item, swipe up to go back to the grid. On a
+  // video or animation a quick flick still steps, but a slower slide scrubs through it:
+  // once a touch has lasted FLICK_MS and is moving sideways, it belongs to the video.
+  const FLICK_MS = 250, SCRUB_SPAN = 60;             // a slide across the whole screen covers at most this many seconds
   let touch = null;
   lb.addEventListener('touchstart', (e) => {
     const t = e.composedPath()[0];
     if (e.touches.length > 1 || cmtBox.contains(t) || reportBox.contains(t)) { touch = null; return; }   // a pinch, or a panel that scrolls itself
     // A picture taller than the screen scrolls to its end before a swipe up closes it.
     const atEnd = stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 1;
-    touch = { x: e.touches[0].clientX, y: e.touches[0].clientY, atEnd };
+    const { clientX: x, clientY: y } = e.touches[0];
+    touch = { x, y, atEnd, at: e.timeStamp, video: null };
+    const m = media();
+    if (m && m.tagName === 'VIDEO' && m.duration > 0 && Number.isFinite(m.duration)) {
+      const r = m.getBoundingClientRect();
+      if (!(t === m && y > r.bottom - 56)) touch.video = m;   // the strip along the bottom is the player's own seek bar
+    }
+  }, { passive: true });
+  lb.addEventListener('touchmove', (e) => {
+    const v = touch && touch.video;
+    if (!v || zoom !== 1 || e.touches.length > 1) return;
+    const { clientX: x, clientY: y } = e.touches[0];
+    if (!touch.scrub) {
+      const dx = x - touch.x;
+      if (e.timeStamp - touch.at < FLICK_MS || Math.abs(dx) < 12 || Math.abs(dx) < Math.abs(y - touch.y)) return;
+      touch.scrub = { x, time: v.currentTime };       // from here, so the picture does not jump
+    }
+    const span = Math.min(v.duration, SCRUB_SPAN);
+    try { v.currentTime = clamp(touch.scrub.time + (x - touch.scrub.x) / (lb.clientWidth || 1) * span, 0, Math.max(0, v.duration - 0.05)); } catch { /* not seekable yet */ }
   }, { passive: true });
   lb.addEventListener('touchend', (e) => {
     const from = touch;
     touch = null;
-    if (!from || zoom !== 1) return;                               // a zoomed picture is being panned
+    if (!from || from.scrub || zoom !== 1) return;                 // scrubbed a video, or a zoomed picture is being panned
     const dx = e.changedTouches[0].clientX - from.x, dy = e.changedTouches[0].clientY - from.y;
     if (Math.abs(dx) > 60 && Math.abs(dx) >= Math.abs(dy)) showSlide(lbIdx + (dx < 0 ? 1 : -1));
     else if (dy < -80 && -dy > Math.abs(dx) * 1.5 && from.atEnd) closeLb();
   }, { passive: true });
+  lb.addEventListener('touchcancel', () => { touch = null; }, { passive: true });
 
   /* ------------------------------------------------------------------ *
    *  Open / close
@@ -2819,6 +2866,8 @@ button.chip{font-weight:500}
   renderActions();
   restartGalleryTimer();
   $('#update').onclick = openUpdate;
+  $('#ver').textContent = 'v' + VERSION;
+  $('.brand').title = ABOUT;
   if (newerThan(store.get('newVersion', ''), VERSION)) offerUpdate(store.get('newVersion', ''));
   checkUpdate();                                     // at most one request per 15 minutes
 
@@ -2868,6 +2917,11 @@ button.chip{font-weight:500}
   const menu = (label, fn) => { try { GM_registerMenuCommand(label, fn); } catch { /* no menu here */ } };
   menu('Open gallery (Alt+G)', () => start().toggle());
   menu('Check for an update now', () => start().checkUpdate(true));
+  {
+    const info = typeof GM_info !== 'undefined' ? GM_info : {};
+    const text = `Version ${info.script?.version || '?'}` + (info.loader ? ` (loader ${info.loader})` : '');
+    menu(text, () => alert(`Web Gallery View\n${text}\nhttps://github.com/realteamnet/RedditGallery`));
+  }
   if (REDDIT) { start(); return; }
   // <web>
 

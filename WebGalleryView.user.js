@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Web Gallery View
 // @namespace    https://violentmonkey.github.io/
-// @version      3.0.0
+// @version      3.1.0
 // @description  Show a page's pictures, GIFs and videos as a media gallery with infinite scroll and a lightbox. Best-effort on any site with a media grid; full support for Reddit. Keeps itself up to date from GitHub.
 // @homepageURL  https://github.com/realteamnet/RedditGallery
 // @downloadURL  https://raw.githubusercontent.com/realteamnet/RedditGallery/main/WebGalleryView.user.js
@@ -9,90 +9,52 @@
 // @match        *://*/*
 // @noframes
 // @run-at       document-idle
+// @grant        GM_info
 // @grant        GM_getValue
 // @grant        GM_setValue
+// @grant        GM_deleteValue
 // @grant        GM_registerMenuCommand
 // @grant        GM_xmlhttpRequest
-// @grant        GM_info
+// @grant        GM_download
+// @grant        GM_openInTab
+// @grant        GM_setClipboard
 // @connect      raw.githubusercontent.com
 // @connect      v.redd.it
 // @connect      api.redgifs.com
 // @connect      media.redgifs.com
 // ==/UserScript==
 
-// This file is only a loader. The gallery itself is WebGalleryCore.user.js, next to it in
-// the repository:  https://github.com/realteamnet/RedditGallery/blob/main/WebGalleryCore.user.js
+// Stage 1 of 3, and deliberately almost nothing, so that it rarely has to be updated: it
+// runs its stored copy of stage 2 (WebGalleryLoader.js) and fetches one if it has none.
+// Stage 2 keeps itself and the gallery (WebGalleryCore.user.js, stage 3) up to date. All
+// three files sit next to each other:  https://github.com/realteamnet/RedditGallery
 //
-// What it does: keeps a copy of that file in the userscript manager's storage, runs the
-// copy on every page, and replaces it in the background when GitHub has a newer one. A new
-// version therefore takes effect on the next page you open, without any prompt.
-//
-// What that means: whatever is on the repository's main branch runs on every site you
-// visit, with this script's permissions, without you seeing it first. Install
+// Whatever is on that repository's main branch therefore runs on every site you visit, with
+// the permissions above (some are for later use), without you seeing it first. Install
 // WebGalleryCore.user.js instead if you want to confirm each update yourself.
-//
-// The permissions above are the gallery's. A gallery version that needs a new one only
-// works after this loader has been updated the normal way.
 (() => {
   'use strict';
+  const NEXT = 'https://raw.githubusercontent.com/realteamnet/RedditGallery/main/WebGalleryLoader.js';
+  const GM = { GM_info, GM_getValue, GM_setValue, GM_deleteValue, GM_registerMenuCommand, GM_xmlhttpRequest, GM_download, GM_openInTab, GM_setClipboard };
 
-  const SOURCE = 'https://raw.githubusercontent.com/realteamnet/RedditGallery/main/WebGalleryCore.user.js';
-  const EVERY = 15 * 60 * 1000;            // look for a newer copy at most this often
-  const get = (k, d) => { try { const v = GM_getValue(k); return v === undefined ? d : v; } catch { return d; } };
-  const set = (k, v) => { try { GM_setValue(k, v); } catch { /* ignore */ } };
-  const versionOf = (code) => /^\/\/ @version\s+(\S+)/m.exec(code || '')?.[1] || '';
-  const genuine = (code) => /^\/\/ ==UserScript==/.test(code || '') && /^\/\/ @name\s+Web Gallery View \(core\)\s*$/m.test(code) && !!versionOf(code);
-
-  // The gallery reads its version and update address from GM_info. It gets its own version
-  // and no address: updating is this loader's job, so the gallery never offers one itself.
   function run(code) {
-    const info = { ...GM_info, script: { ...GM_info.script, version: versionOf(code) }, scriptMetaStr: '' };
-    try {
-      new Function('GM_info', 'GM_getValue', 'GM_setValue', 'GM_registerMenuCommand', 'GM_xmlhttpRequest', code)(
-        info, GM_getValue, GM_setValue, GM_registerMenuCommand, GM_xmlhttpRequest);
-    } catch (e) {
-      // Some sites forbid running fetched code (a strict Content-Security-Policy).
-      console.warn('[Web Gallery View] could not run the gallery on this page:', e);
+    let stage2;
+    try { stage2 = new Function(...Object.keys(GM), code); } catch (e) {
+      if (e instanceof SyntaxError) GM_setValue('shim2', '');   // a broken copy: fetch a fresh one next time
+      return;                                                  // otherwise this site forbids running fetched code
     }
+    try { stage2(...Object.values(GM)); } catch (e) { GM_setValue('shim2', ''); console.warn('[Web Gallery View]', e); }
   }
 
-  // The request carries the stored copy's ETag, so GitHub answers "not modified" with no
-  // body unless the file changed. GitHub serves this address from a cache of up to five
-  // minutes; a new version is that much late at most.
-  function refresh(then) {
-    set('loader.at', Date.now());
-    const stored = get('loader.code', ''), etag = stored && get('loader.etag', '');
-    try {
-      GM_xmlhttpRequest({
-        method: 'GET',
-        url: SOURCE,
-        headers: etag ? { 'If-None-Match': etag } : {},
-        timeout: 15000,
-        onload: (r) => {
-          if (r.status === 304) { then?.(stored); return; }
-          const code = r.responseText || '';
-          if (r.status !== 200 || !genuine(code)) { then?.(''); return; }   // an error page, not the gallery: keep the stored copy
-          set('loader.code', code);
-          set('loader.etag', /^etag:\s*(\S+)/im.exec(r.responseHeaders || '')?.[1] || '');
-          then?.(code);
-        },
-        onerror: () => then?.(''),
-        ontimeout: () => then?.(''),
-      });
-    } catch { then?.(''); }
-  }
-
-  try {
-    GM_registerMenuCommand('Fetch the latest gallery now', () => refresh((code) => {
-      alert(code ? `Web Gallery View ${versionOf(code)} is stored. Reload the page to use it.` : 'Could not fetch the gallery from GitHub.');
-    }));
-  } catch { /* no menu here */ }
-
-  const cached = get('loader.code', '');
-  if (cached) {
-    run(cached);
-    if (Date.now() - get('loader.at', 0) > EVERY) refresh();   // takes effect on the next page
-  } else {
-    refresh((code) => { if (code) run(code); });               // first use: nothing stored yet
-  }
+  const stored = GM_getValue('shim2', '');
+  if (stored) { run(stored); return; }
+  GM_xmlhttpRequest({
+    method: 'GET',
+    url: NEXT,
+    onload: (r) => {
+      if (r.status !== 200 || !/^\/\/ Web Gallery View loader \d/.test(r.responseText)) return;
+      GM_setValue('shim2', r.responseText);
+      run(r.responseText);
+    },
+  });
 })();

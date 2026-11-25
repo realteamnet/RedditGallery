@@ -16,25 +16,25 @@ Greasemonkey) is loaded.
 
 | File | What it is |
 | --- | --- |
-| [WebGalleryView.user.js](WebGalleryView.user.js) | **Install this.** A small loader that keeps the gallery up to date by itself. |
-| [WebGalleryCore.user.js](WebGalleryCore.user.js) | The gallery itself: all the code. The loader runs the latest copy of this file. |
+| [WebGalleryView.user.js](WebGalleryView.user.js) | **Install this.** Stage 1: a few lines that run stage 2. Kept minimal so it almost never needs updating. |
+| [WebGalleryLoader.js](WebGalleryLoader.js) | Stage 2: keeps itself and the gallery up to date. Not installed; stage 1 fetches it. |
+| [WebGalleryCore.user.js](WebGalleryCore.user.js) | Stage 3: the gallery itself, all the code. |
 | [RedditGallery.user.js](RedditGallery.user.js) | Reddit-only edition: the same gallery code, running on reddit.com and nowhere else. |
 
-**Web Gallery View updates itself.** The loader keeps a copy of
-`WebGalleryCore.user.js`, runs it on every page, and replaces it in the background when
-this repository has a newer one, so a new version is in use on the next page you open
-(GitHub's own cache can delay that by a few minutes). The trade-off: whatever is on this
-repository's main branch runs on every site you visit without you confirming it first.
-Some sites with a strict security policy may refuse to run fetched code; the gallery is
-then simply absent there.
+**Web Gallery View updates itself.** It keeps copies of the loader and the gallery, runs
+them on every page, and replaces them in the background when this repository has newer
+ones, so a new version is in use on the next page you open (within about 20 minutes of
+a release). The trade-off: whatever is on this repository's main branch runs on every
+site you visit without you confirming it first. Some sites with a strict security policy
+may refuse to run fetched code; the gallery is then simply absent there.
 
 **Prefer to confirm every update yourself?** Install
 [WebGalleryCore.user.js](https://raw.githubusercontent.com/realteamnet/RedditGallery/main/WebGalleryCore.user.js)
 (any site) or
 [RedditGallery.user.js](https://raw.githubusercontent.com/realteamnet/RedditGallery/main/RedditGallery.user.js)
 (Reddit only) instead. Those are ordinary userscripts: they show a small "update
-available" bar and your userscript manager installs the new version. Install only one of
-the three; if more are installed, only one runs on a page.
+available" bar and your userscript manager installs the new version. Install only one;
+if more are installed, only one runs on a page.
 
 ## Install
 
@@ -58,6 +58,7 @@ the three; if more are installed, only one runs on a page.
   appears by itself on pages where a grid of media is found. The userscript menu can
   hide that button for a site.
 - **Exit gallery** (or Esc) returns to the page where you left off.
+- The version is shown next to "Gallery" in the header and in the userscript menu.
 - The browser's Back button does not leave gallery view; exit the gallery first.
 - Gallery view is remembered per page: once opened, that page opens as a gallery from
   then on, until you exit it there. No page opens as a gallery unless you switched it on.
@@ -70,7 +71,9 @@ the three; if more are installed, only one runs on a page.
 - **Playback** — global mute, autoplay all, gallery autoplay with an interval, and
   autoscroll at four speeds. Out of the box: muted, autoplay all on, gallery autoplay on.
 - **Lightbox** — wheel, arrow keys or a sideways swipe to step through items, swipe up
-  to go back to the grid, Ctrl+wheel / pinch to zoom (up to 10×) and drag to pan, seek
+  to go back to the grid. The arrows show what a step does: a gold single arrow with a
+  position ("2 / 5") stays inside the post's own pictures, a double arrow moves to another
+  post. On a video a quick flick steps and a slower slide scrubs through it. Also Ctrl+wheel / pinch to zoom (up to 10×) and drag to pan, seek
   bar, loop, fit/fill, fullscreen.
 - Looks for a newer version at most every 15 minutes. Web Gallery View takes it by
   itself; the other two files offer it in a small bar at the top of the page, and nothing
