@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Gallery View
 // @namespace    https://violentmonkey.github.io/
-// @version      3.3.0
+// @version      3.4.0
 // @description  Show any Reddit page (subreddit, user, search, custom feed / multireddit, front page) as a media gallery with infinite scroll and a lightbox.
 // @icon         https://www.redditstatic.com/shreddit/assets/favicon/192x192.png
 // @homepageURL  https://github.com/realteamnet/RedditGallery
@@ -343,9 +343,11 @@
 .app:not(.reddit) .rd{display:none!important}
 button,select,input{font:inherit;color:inherit}
 .fab,.app{z-index:2147483647}
-.fab{position:fixed;right:18px;bottom:18px;font:600 13px/1 "Avenir Next","Segoe UI Variable",system-ui,sans-serif;color:#1c1d20;background:#e9b44c;border:0;border-radius:999px;padding:11px 16px;cursor:pointer;box-shadow:0 6px 22px rgba(0,0,0,.4);opacity:.92;transition:opacity .15s,transform .15s}
-.fab:hover{opacity:1;transform:translateY(-1px)}
-.upd{position:fixed;z-index:2147483647;top:12px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;max-width:calc(100vw - 24px);padding:7px 7px 7px 16px;border-radius:999px;background:#1f2024;color:#ece9e3;border:1px solid #393c42;box-shadow:0 10px 30px rgba(0,0,0,.5);font:13px/1.3 "Avenir Next","Segoe UI Variable",system-ui,sans-serif;white-space:nowrap;color-scheme:dark}
+.fab{position:fixed;left:50%;top:0;translate:-50% 0;font:600 13px/1 "Avenir Next","Segoe UI Variable",system-ui,sans-serif;color:#1c1d20;background:#e9b44c;border:0;border-radius:0 0 14px 14px;padding:7px 18px 9px;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.35);opacity:.92;transition:opacity .15s,padding .15s;touch-action:none;user-select:none;-webkit-user-select:none}
+.fab:hover{opacity:1;padding-top:10px}
+.fab.free{border-radius:999px;padding:10px 16px;box-shadow:0 6px 22px rgba(0,0,0,.4)}
+.fab.drag{cursor:grabbing;transition:none;opacity:1}
+.upd{position:fixed;z-index:2147483647;top:44px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;max-width:calc(100vw - 24px);padding:7px 7px 7px 16px;border-radius:999px;background:#1f2024;color:#ece9e3;border:1px solid #393c42;box-shadow:0 10px 30px rgba(0,0,0,.5);font:13px/1.3 "Avenir Next","Segoe UI Variable",system-ui,sans-serif;white-space:nowrap;color-scheme:dark}
 .upd span{overflow:hidden;text-overflow:ellipsis}
 .upd button{height:30px;padding:0 14px;border-radius:999px;cursor:pointer;font:inherit}
 .upd .go{background:#e9b44c;color:#1c1d20;border:0;font-weight:600}
@@ -612,7 +614,7 @@ button.chip{font-weight:500}
   host.id = 'wg-host';
   const root = host.attachShadow({ mode: 'open' });
   setHTML(root, `
-<button class="fab" title="Open gallery (Alt+G)">Gallery</button>
+<button class="fab" title="Open gallery (Alt+G). Drag to move it.">Gallery</button>
 <div class="app">
   <header>
     <span class="brand keep"><i></i>Gallery<small id="ver"></small></span>
@@ -1532,7 +1534,40 @@ button.chip{font-weight:500}
 
   $('#close').onclick = () => closeGallery();
 
-  fab.onclick = () => toggle();
+  // The Gallery button sits at the top edge like a notch. It can be dragged along that edge,
+  // or off it to anywhere on the page; the place is remembered (as fractions of the window).
+  function placeFab(p = store.get('fabPos', null) || { x: 0.5, y: 0 }) {
+    fab.classList.toggle('free', p.y > 0);
+    fab.style.left = clamp(p.x, 0.06, 0.94) * 100 + '%';
+    fab.style.top = p.y > 0 ? `min(${p.y * 100}%, calc(100% - 44px))` : '0';
+  }
+  placeFab();
+  let fabDrag = null, fabDragged = false;
+  fab.addEventListener('pointerdown', (e) => {
+    fabDragged = false;
+    if (e.button) return;
+    fabDrag = { x: e.clientX, y: e.clientY, pos: null };
+    try { fab.setPointerCapture(e.pointerId); } catch { /* not a live pointer */ }
+  });
+  fab.addEventListener('pointermove', (e) => {
+    if (!fabDrag) return;
+    if (!fabDrag.pos && Math.hypot(e.clientX - fabDrag.x, e.clientY - fabDrag.y) < 8) return;   // still a click
+    const top = e.clientY - fab.offsetHeight / 2;
+    fabDrag.pos = { x: e.clientX / innerWidth, y: top < 24 ? 0 : top / innerHeight };          // near the top it docks again
+    fab.classList.add('drag');
+    placeFab(fabDrag.pos);
+  });
+  const fabDrop = () => {
+    const d = fabDrag;
+    fabDrag = null;
+    fab.classList.remove('drag');
+    if (!d?.pos) return;
+    fabDragged = true;                                // the click that ends a drag opens nothing
+    store.set('fabPos', d.pos);
+  };
+  fab.addEventListener('pointerup', fabDrop);
+  fab.addEventListener('pointercancel', fabDrop);
+  fab.onclick = () => { if (fabDragged) { fabDragged = false; return; } toggle(); };
   statusEl.onclick = () => {
     if (S.loading || S.done) return;
     S.emptyStreak = 0;
@@ -2521,79 +2556,6 @@ button.chip{font-weight:500}
     syncActions(post);
   };
 
-  /* ------------------------------------------------------------------ *
-   *  A Gallery button in Reddit's own bar, next to the sort and view
-   *  controls at the top of a listing. Reddit's markup changes often, so
-   *  edit BARS if the button stops appearing; the corner button is the
-   *  fallback whenever none of these are found.
-   * ------------------------------------------------------------------ */
-  const BARS = [
-    'shreddit-sort-dropdown',                                 // reddit.com listings
-    'shreddit-feed-sort',
-    '[data-testid="posts-sort-menu"]',
-    'faceplate-dropdown-menu[data-testid="sort-dropdown"]',
-    '.tabmenu',                                               // old.reddit.com
-  ];
-  let inlineBtn = null;
-
-  // Walks open shadow roots too, since Reddit's own elements keep their markup inside one.
-  function deepFind(sels, budget = 4000) {
-    const queue = [document.body];
-    for (let i = 0; i < queue.length && i < budget; i++) {
-      const n = queue[i];
-      if (!n || n === host) continue;
-      for (const sel of sels) { if (n.matches?.(sel)) return n; }
-      if (n.shadowRoot) queue.push(...n.shadowRoot.children);
-      if (n.children) queue.push(...n.children);
-    }
-    return null;
-  }
-
-  function findBar(deep) {
-    for (const sel of BARS) {
-      const n = document.querySelector(sel);
-      if (n) return n;
-    }
-    return deep ? deepFind(BARS) : null;
-  }
-
-  function makeInlineBtn(onTabmenu) {
-    const b = document.createElement(onTabmenu ? 'a' : 'button');
-    b.id = 'rg-inline';
-    b.textContent = 'Gallery';
-    b.title = 'Show this page as a gallery (Alt+G)';
-    if (onTabmenu) b.href = 'javascript:void 0';
-    b.style.cssText = 'display:inline-block;margin:0 8px 0 0;padding:5px 12px;border:0;border-radius:999px;' +
-      'background:#e9b44c;color:#1c1d20;font:600 12px/1.2 system-ui,sans-serif;text-decoration:none;cursor:pointer;align-self:center';
-    b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); toggle(); });
-    return b;
-  }
-
-  function dropInline() {
-    if (!inlineBtn) return;
-    const wrap = inlineBtn.parentNode;
-    if (wrap && wrap.tagName === 'LI' && wrap.childNodes.length === 1) wrap.remove();
-    else inlineBtn.remove();
-    inlineBtn = null;
-  }
-
-  function mountInline(deep) {
-    if (inlineBtn && inlineBtn.isConnected) return;
-    const bar = findBar(deep);
-    if (!bar || !bar.parentNode) { syncFab(); return; }
-    const tabmenu = bar.matches('.tabmenu');
-    inlineBtn = makeInlineBtn(tabmenu);
-    if (tabmenu) {
-      const li = document.createElement('li');
-      li.append(inlineBtn);
-      bar.prepend(li);
-    } else {
-      bar.parentNode.insertBefore(inlineBtn, bar);      // to the left of the sort control
-    }
-    syncFab();
-  }
-
-  let mountTick = 0;
   SITES.reddit = {
     cls: 'reddit',
     referrer: 'no-referrer',
@@ -2605,13 +2567,9 @@ button.chip{font-weight:500}
       toggleComments(S.slides[lbIdx].post);
       return true;
     },
-    fabHidden: () => !!(inlineBtn && inlineBtn.isConnected),
-    button(deep, rebuilt) { if (rebuilt) dropInline(); mountInline(deep); },
-    start() {
-      setInterval(() => { if (!document.hidden && !app.classList.contains('open')) mountInline(++mountTick % 4 === 0); }, 1200);   // look inside shadow roots now and then
-      mountInline(true);
-      setTimeout(() => mountInline(true), 1500);       // the bar often arrives after the feed
-    },
+    fabHidden: () => false,
+    button: syncFab,
+    start: syncFab,
   };
 
 

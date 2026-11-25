@@ -52,11 +52,12 @@ if more are installed, only one runs on a page.
 
 ## Use
 
-- **On Reddit**: click **Gallery** next to Reddit's sort bar, the corner button, or press
-  **Alt+G**.
-- **On any other site**: press **Alt+G**, or use the corner **Gallery** button, which
-  appears by itself on pages where a grid of media is found. The userscript menu can
-  hide that button for a site.
+- Click the **Gallery** button docked at the top centre of the page, or press **Alt+G**.
+  Drag the button along the top edge, or off it to anywhere on the page; it stays where
+  you put it. Drag it back to the top to dock it again.
+- **On Reddit** the button is on every page. **On any other site** it appears by itself
+  on pages where a grid of media is found, and the userscript menu can hide it for a
+  site.
 - **Exit gallery** (or Esc) returns to the page where you left off.
 - The version is shown next to "Gallery" in the header and in the userscript menu.
 - The browser's Back button does not leave gallery view; exit the gallery first.
@@ -122,5 +123,4 @@ if more are installed, only one runs on a page.
 Everything runs in your browser. On Reddit it uses Reddit's own `.json` endpoints with
 your session, so private multireddits work. On other sites it only reads the page you
 are on and same-site "next" pages. The UI lives in a shadow DOM so the site's styles
-cannot interfere. Reddit re-skins often; if the inline Gallery button disappears, the
-corner button and Alt+G still work.
+cannot interfere.
