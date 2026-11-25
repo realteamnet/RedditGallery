@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Gallery View
 // @namespace    https://violentmonkey.github.io/
-// @version      1.37.0
+// @version      1.38.0
 // @description  Show any Reddit page (subreddit, user, search, custom feed / multireddit, front page) as a media gallery with infinite scroll and a lightbox.
 // @icon         https://www.redditstatic.com/shreddit/assets/favicon/192x192.png
 // @homepageURL  https://github.com/realteamnet/RedditGallery
@@ -43,7 +43,6 @@
     caption: store.get('caption', true),           // lightbox caption visible
     wide: store.get('wide', true),                 // let landscape items span several columns
     previews: store.get('previews', true),   // include link posts that only have a preview image
-    autoOpen: store.get('autoOpen', false),
     muted: store.get('muted', true),               // global mute for every video
     autoplayAll: store.get('autoplayAll', true),   // play every visible video/GIF tile at once
     galleryAuto: store.get('galleryAuto', true),   // auto-cycle multi-image posts
@@ -118,8 +117,9 @@
     return location.pathname.replace(/\/+$/, '').toLowerCase() + (qs ? '?' + qs : '');
   }
 
+  // Per tab: pages opened in a new tab from the gallery (see HANDOFF). Nothing else writes it.
   const tabPages = (() => {
-    const KEY = 'rg:gallery-pages';
+    const KEY = 'rg:handoff-pages';
     let mem = new Set();   // fallback when sessionStorage is unavailable
     const read = () => {
       try { const v = sessionStorage.getItem(KEY); return new Set(v ? JSON.parse(v) : []); } catch { return mem; }
@@ -135,17 +135,20 @@
     };
   })();
 
-  // Subreddits and multireddits you put in gallery view stay that way: saved for good, in
-  // every tab and under every sort, until you leave gallery view there. Read fresh each time,
-  // because another tab may have changed it.
+  // A page you put in gallery view stays that way: saved for good, in every tab, until you
+  // leave gallery view there. Only a deliberate open writes it (see toggle), so no page opens
+  // as a gallery that was not switched to it. Subreddits and multireddits count as one page
+  // under every sort. Read fresh each time, because another tab may have changed it.
   function feedKey() {
     const m = /^\/(?:(r\/[^/]+)|(?:user|u)\/([^/]+\/m\/[^/]+))(?:\/(?:hot|new|top|rising|controversial|best))?\/?$/i.exec(location.pathname);
     return m ? (m[1] || 'user/' + m[2]).toLowerCase() : '';
   }
-  const feedPages = {
-    has: (k) => !!k && store.get('galleryFeeds', []).includes(k),
-    add(k) { if (k) store.set('galleryFeeds', [...store.get('galleryFeeds', []).filter((x) => x !== k), k].slice(-500)); },
-    del(k) { if (this.has(k)) store.set('galleryFeeds', store.get('galleryFeeds', []).filter((x) => x !== k)); },
+  const memKey = () => feedKey() || pageKey() || '/';
+  const pageMem = {
+    list: () => store.get('galleryPages', null) || store.get('galleryFeeds', []),   // galleryFeeds: the 1.36 name
+    has(k) { return this.list().includes(k); },
+    add(k) { store.set('galleryPages', [...this.list().filter((x) => x !== k), k].slice(-500)); },
+    del(k) { if (this.has(k)) store.set('galleryPages', this.list().filter((x) => x !== k)); },
   };
 
   // Which item the lightbox was showing on each page, so a reload picks it up again.
@@ -168,7 +171,6 @@
   })();
 
   const SORTS = ['hot', 'new', 'top', 'rising', 'controversial', 'best'];
-  const LISTABLE = /^\/(?:$|(?:r|user|u|search|domain|m)\b|(?:best|hot|new|top|rising|controversial|popular|all)\b)/i;
 
   /* ------------------------------------------------------------------ *
    *  State
@@ -765,10 +767,6 @@ button.chip{font-weight:500}
             <option value="120">fast</option><option value="240">faster</option>
           </select>
         </label>
-      </div>
-      <div class="group">
-        <span class="gh">Gallery</span>
-        <label class="chip"><input id="autoopen" type="checkbox" title="Open the gallery by itself on every listing page">Auto-open</label>
       </div>
     </div>
   </header>
@@ -1669,14 +1667,7 @@ button.chip{font-weight:500}
 
   $('#close').onclick = () => closeGallery();
 
-  // Auto-open is the persistent "open on every listing page" setting, also in the Violentmonkey menu.
-  function renderAutoOpen() { $('#autoopen').checked = cfg.autoOpen; }
-  renderAutoOpen();
-  $('#autoopen').onchange = (e) => {
-    cfg.autoOpen = e.target.checked;
-    store.set('autoOpen', cfg.autoOpen);
-  };
-  fab.onclick = () => openGallery();
+  fab.onclick = () => toggle();
   statusEl.onclick = () => {
     if (S.loading || S.done) return;
     S.emptyStreak = 0;
@@ -2333,7 +2324,6 @@ button.chip{font-weight:500}
     startScroll();
     document.documentElement.style.overflow = 'hidden';
     coverPage(true);
-    tabPages.add(pageKey());
     pushGuard();
     if (force || S.href !== pageKey()) {
       S.href = pageKey();
@@ -2361,7 +2351,7 @@ button.chip{font-weight:500}
 
   function closeGallery() {
     tabPages.del(pageKey());
-    feedPages.del(feedKey());
+    pageMem.del(memKey());
     tabFocus.del(pageKey());
     hideGallery();
     if (onGuard()) history.back();                   // drop the guard entry, so the next Back really leaves
@@ -2380,10 +2370,10 @@ button.chip{font-weight:500}
     try { history.pushState({ ...state, rgGuard: true }, '', location.href); } catch { /* ignore */ }
   }
 
-  // Only a deliberate open is remembered for the feed, not one that auto-open made.
+  // Only a deliberate open is remembered for the page.
   function toggle() {
     if (app.classList.contains('open')) return closeGallery();
-    feedPages.add(feedKey());
+    pageMem.add(memKey());
     openGallery();
   }
 
@@ -2487,7 +2477,7 @@ button.chip{font-weight:500}
   }
 
   /* ------------------------------------------------------------------ *
-   *  Menu commands + optional auto-open (Reddit navigates without reloads)
+   *  Menu commands + remembered pages (Reddit navigates without reloads)
    * ------------------------------------------------------------------ */
   renderFeeds();
   applyFit();
@@ -2497,12 +2487,6 @@ button.chip{font-weight:500}
   $('#update').onclick = () => { try { window.open(UPDATE_URL, '_blank', 'noopener'); } catch { /* ignore */ } };
   GM_registerMenuCommand('Open gallery (Alt+G)', toggle);
   GM_registerMenuCommand('Check for an update now', () => checkUpdate(true));
-  GM_registerMenuCommand('Toggle auto-open on listing pages', () => {
-    cfg.autoOpen = !cfg.autoOpen;
-    store.set('autoOpen', cfg.autoOpen);
-    renderAutoOpen();
-    alert(`Reddit Gallery: auto-open is now ${cfg.autoOpen ? 'ON' : 'OFF'}.`);
-  });
 
   // Opened in a new tab from the gallery: adopt gallery mode for this page, then tidy the URL.
   if (location.hash === HANDOFF) {
@@ -2510,7 +2494,7 @@ button.chip{font-weight:500}
     try { history.replaceState(history.state, '', location.pathname + location.search); } catch { /* ignore */ }
   }
 
-  const wantGallery = () => tabPages.has(pageKey()) || feedPages.has(feedKey()) || (cfg.autoOpen && LISTABLE.test(location.pathname));
+  const wantGallery = () => tabPages.has(pageKey()) || pageMem.has(memKey());
 
   // Reddit navigates without reloading, so watch for URL changes (including Back/Forward).
   let lastHref = location.href, lastKey = pageKey();

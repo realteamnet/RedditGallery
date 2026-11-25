@@ -28,7 +28,6 @@ Greasemonkey) is loaded.
 - Click **Gallery** next to Reddit's sort bar, the corner button, or press **Alt+G**.
 - **Exit gallery** (or Esc) returns to Reddit where you left off.
 - The browser's Back button does not leave gallery view; exit the gallery first.
-- Turn on **Auto-open** to start every listing page in gallery view.
 
 ## Features
 
@@ -46,9 +45,10 @@ Greasemonkey) is loaded.
   (up to 10×) and drag to pan, seek bar, loop, fit/fill, fullscreen.
 - **Post actions** — vote, save, hide, follow, share, crosspost, report, and read the
   comments in a side panel without leaving the lightbox.
-- Remembers gallery view per subreddit and multireddit: open it once and that feed opens
-  as a gallery from then on, in any tab and under any sort, until you exit gallery view
-  there. Other pages, and the item you were viewing, are remembered per tab.
+- Remembers gallery view per page: open it once on a subreddit, multireddit, the front
+  page, a search or a user page, and that page opens as a gallery from then on, in any
+  tab, until you exit gallery view there. Subreddits and multireddits count as one page
+  under every sort. No page opens as a gallery unless you switched it on there.
 - Checks for a newer version (at most every 15 minutes) and offers it.
 
 ## Keyboard
