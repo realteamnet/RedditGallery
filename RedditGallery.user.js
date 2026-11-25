@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Gallery View
 // @namespace    https://violentmonkey.github.io/
-// @version      3.5.0
+// @version      3.5.1
 // @description  Show any Reddit page (subreddit, user, search, custom feed / multireddit, front page) as a media gallery with infinite scroll and a lightbox.
 // @icon         https://www.redditstatic.com/shreddit/assets/favicon/192x192.png
 // @homepageURL  https://github.com/realteamnet/RedditGallery
@@ -723,16 +723,22 @@ button.chip{font-weight:500}
     <div class="toast"></div>
   </div>
 </div>`);
-  try {
-    const sheet = new CSSStyleSheet();
-    sheet.replaceSync(CSS);
-    root.adoptedStyleSheets = [sheet];
-  } catch {
-    const st = document.createElement('style');
-    st.textContent = CSS;
-    root.prepend(st);
-  }
+  // A plain <style> works in every userscript manager. A strict Content-Security-Policy
+  // drops it; a constructed sheet is not subject to the policy, but is unreliable from a
+  // manager's sandbox (Firefox), so it is only the second choice. The check is whether the
+  // button really got its style.
+  const styleEl = document.createElement('style');
+  styleEl.textContent = CSS;
+  root.prepend(styleEl);
   document.documentElement.append(host);
+  if (getComputedStyle(root.querySelector('.fab')).position !== 'fixed') {
+    try {
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync(CSS);
+      root.adoptedStyleSheets = [sheet];
+      styleEl.remove();
+    } catch { /* the <style> is all there is */ }
+  }
 
   const $ = (s) => root.querySelector(s);
   const fab = $('.fab'), app = $('.app'), scroller = $('.scroller'), grid = $('.grid');
