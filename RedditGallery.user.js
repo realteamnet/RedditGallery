@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Gallery View
 // @namespace    https://violentmonkey.github.io/
-// @version      3.6.0
+// @version      3.6.1
 // @description  Show any Reddit page (subreddit, user, search, custom feed / multireddit, front page) as a media gallery with infinite scroll and a lightbox.
 // @icon         https://www.redditstatic.com/shreddit/assets/favicon/192x192.png
 // @homepageURL  https://github.com/realteamnet/RedditGallery
@@ -360,6 +360,7 @@ button,select,input{font:inherit;color:inherit}
 header{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:10px 96px 10px 16px;background:var(--panel);border-bottom:1px solid #2b2d32;box-shadow:0 1px 12px rgba(0,0,0,.25);position:relative;z-index:1}
 .bar-up header{padding-block:5px;min-height:42px;flex-wrap:nowrap}
 .bar-up .end{min-width:0}
+.bar-up header>.gr{flex-wrap:nowrap}
 .bar-up #count{min-width:0;overflow:hidden;text-overflow:ellipsis;margin-right:0}
 .win{position:absolute;top:9px;right:12px;display:flex;gap:6px}
 .bar-up .win{top:5px}
@@ -576,7 +577,8 @@ button.chip{font-weight:500}
   header{padding:8px 10px;gap:8px}
   .brand{flex:1 1 100%;min-height:32px}
   .bar-up header{padding-right:86px}
-  .bar-up .brand{flex:0 0 auto;min-height:0}
+  .bar-up .brand{flex:0 0 auto;min-height:0;font-size:0;gap:0}
+  .bar-up .brand small,.bar-up #count{display:none}
   .win{top:8px;right:8px}
   .bar-up .win{top:5px}
   #gFeed{flex-basis:100%}
@@ -648,7 +650,7 @@ button.chip{font-weight:500}
       <button id="delFeed" title="Delete the selected saved feed">Delete</button>
       <button id="refresh" title="Reload the page (shift-click to fetch the listing again without reloading)">Refresh</button>
     </div>
-    <div class="gr">
+    <div class="gr keep">
       <select id="sort" class="rd" title="Sort">
         <option value="">default order</option><option>hot</option><option>new</option>
         <option>top</option><option>rising</option><option>controversial</option>
