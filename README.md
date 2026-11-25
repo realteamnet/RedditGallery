@@ -16,8 +16,8 @@ Greasemonkey) is loaded.
 
 | File | What it is |
 | --- | --- |
-| [WebGalleryView.user.js](WebGalleryView.user.js) | **Install this.** The gallery for every site, Reddit included. |
-| [RedditGallery.user.js](RedditGallery.user.js) | Reddit-only edition: the same gallery code, running on reddit.com and nowhere else. |
+| [WebGalleryView.user.js](https://raw.githubusercontent.com/realteamnet/RedditGallery/main/WebGalleryView.user.js) | **Install this.** The gallery for every site, Reddit included. |
+| [RedditGallery.user.js](https://raw.githubusercontent.com/realteamnet/RedditGallery/main/RedditGallery.user.js) | Reddit-only edition: the same gallery code, running on reddit.com and nowhere else. |
 
 Both are ordinary userscripts. Your userscript manager updates them on its own schedule,
 and the script shows a small "update available" bar when this repository has a newer
