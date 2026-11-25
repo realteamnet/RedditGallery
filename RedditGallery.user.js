@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Gallery View
 // @namespace    https://violentmonkey.github.io/
-// @version      3.5.1
+// @version      3.5.2
 // @description  Show any Reddit page (subreddit, user, search, custom feed / multireddit, front page) as a media gallery with infinite scroll and a lightbox.
 // @icon         https://www.redditstatic.com/shreddit/assets/favicon/192x192.png
 // @homepageURL  https://github.com/realteamnet/RedditGallery
@@ -420,8 +420,9 @@ button.chip{font-weight:500}
 .meta .go:hover{color:var(--acc);text-decoration:underline}
 .cap .row a.go:hover{color:var(--acc)}
 .badge{position:absolute;top:8px;right:8px;padding:3px 8px;border-radius:999px;background:rgba(14,14,16,.74);color:#f3f1ec;font-size:10.5px;font-weight:700;letter-spacing:.04em;line-height:1.3}
-.tnav{position:absolute;top:50%;transform:translateY(-50%);width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(14,14,16,.7);color:#f3f1ec;font-size:22px;line-height:1;padding-bottom:2px;cursor:pointer;opacity:0;transition:opacity .15s,background .15s;user-select:none}
+.tnav{position:absolute;top:50%;transform:translateY(-50%);width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:50%;background:rgba(14,14,16,.7);color:#f3f1ec;cursor:pointer;opacity:0;transition:opacity .15s,background .15s;user-select:none}
 .tnav:hover{background:var(--acc);color:var(--acc-ink)}
+.tnav svg{width:18px;height:18px}
 .tprev{left:8px}
 .tnext{right:8px}
 .tile:hover .tnav{opacity:1}
@@ -482,7 +483,11 @@ button.chip{font-weight:500}
 .cap .row{margin-top:3px}
 .cap .row>*{color:var(--mute);font-weight:400}
 .cap .row>*+*::before{content:"·";display:inline-block;margin:0 8px;color:#4c4f55}
-.nav{position:absolute;z-index:1;top:50%;transform:translateY(-50%);width:52px;height:52px;padding:0 0 4px;display:flex;align-items:center;justify-content:center;border-radius:50%;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.06);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);color:#f3f1ec;font-size:32px;line-height:1;cursor:pointer;opacity:.75}
+.nav{position:absolute;z-index:1;top:50%;transform:translateY(-50%);width:52px;height:52px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:50%;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.06);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);color:#f3f1ec;cursor:pointer;opacity:.75}
+.nav svg,.tnav svg{display:block;width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
+.prev svg,.tprev svg{transform:scaleX(-1)}
+.c2,.nav.two .c1{display:none}
+.nav.two .c2{display:inline}
 .nav:hover{opacity:1;background:rgba(255,255,255,.14)}
 .prev{left:16px}.next{right:16px}
 .nav.in{border-color:rgba(233,180,76,.55);color:var(--acc)}
@@ -566,7 +571,8 @@ button.chip{font-weight:500}
   .opts{gap:8px 14px}
   .scroller{padding:6px}
   .stage{padding:4px 8px}
-  .nav{width:40px;height:40px;font-size:26px}
+  .nav{width:40px;height:40px}
+  .nav svg{width:22px;height:22px}
   .prev{left:6px}.next{right:6px}
   .pa .t{display:none}
   .pa{width:36px;padding:0;justify-content:center}
@@ -704,9 +710,9 @@ button.chip{font-weight:500}
       <input id="reportText" type="text" placeholder="More detail (optional)" spellcheck="false">
       <div class="buttons"><button id="reportCancel">Cancel</button><button id="reportSend">Send report</button></div>
     </div>
-    <button class="nav prev" title="Previous (←)">‹</button>
+    <button class="nav prev" title="Previous (←)"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="c1" d="M9.5 5 16.5 12l-7 7"/><path class="c2" d="M6 5l7 7-7 7M12 5l7 7-7 7"/></svg></button>
     <div class="stage"></div>
-    <button class="nav next" title="Next (→)">›</button>
+    <button class="nav next" title="Next (→)"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="c1" d="M9.5 5 16.5 12l-7 7"/><path class="c2" d="M6 5l7 7-7 7M12 5l7 7-7 7"/></svg></button>
     <div class="postbar rd"><span class="acts"></span><span class="menu"></span></div>
     <aside class="cmts rd" id="cmts" hidden>
       <div class="cmh">
@@ -1140,8 +1146,9 @@ button.chip{font-weight:500}
       };
       a._show = show;
       a._step = (d) => show(gi + d);
-      for (const [cls, label, d, text] of [['tprev', '‹', -1, 'Previous image'], ['tnext', '›', 1, 'Next image']]) {
-        const b = el('span', 'tnav ' + cls, label);
+      for (const [cls, d, text] of [['tprev', -1, 'Previous image'], ['tnext', 1, 'Next image']]) {
+        const b = el('span', 'tnav ' + cls);
+        setHTML(b, '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 5 16.5 12l-7 7"/></svg>');
         b.setAttribute('role', 'button');
         b.setAttribute('aria-label', text);
         b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); a._step(d); });
@@ -1669,9 +1676,9 @@ button.chip{font-weight:500}
   function renderNav() {
     const cur = S.slides[lbIdx];
     if (!cur) return;
-    for (const [sel, d, one, two, word, key] of [['.prev', -1, '‹', '«', 'Previous', '←'], ['.next', 1, '›', '»', 'Next', '→']]) {
+    for (const [sel, d, word, key] of [['.prev', -1, 'Previous', '←'], ['.next', 1, 'Next', '→']]) {
       const b = $(sel), to = S.slides[lbIdx + d], same = !!to && to.post === cur.post;
-      b.textContent = same || !to ? one : two;
+      b.classList.toggle('two', !!to && !same);        // a double chevron: on to another post
       b.classList.toggle('in', same);
       b.classList.toggle('end', !to);
       b.dataset.n = same ? `${to.pos + 1} / ${to.count}` : '';
