@@ -16,25 +16,12 @@ Greasemonkey) is loaded.
 
 | File | What it is |
 | --- | --- |
-| [WebGalleryView.user.js](WebGalleryView.user.js) | **Install this.** Stage 1: a few lines that run stage 2. Kept minimal so it almost never needs updating. |
-| [WebGalleryLoader.js](WebGalleryLoader.js) | Stage 2: keeps itself and the gallery up to date. Not installed; stage 1 fetches it. |
-| [WebGalleryCore.user.js](WebGalleryCore.user.js) | Stage 3: the gallery itself, all the code. |
+| [WebGalleryView.user.js](WebGalleryView.user.js) | **Install this.** The gallery for every site, Reddit included. |
 | [RedditGallery.user.js](RedditGallery.user.js) | Reddit-only edition: the same gallery code, running on reddit.com and nowhere else. |
 
-**Web Gallery View updates itself.** It keeps copies of the loader and the gallery, runs
-them on every page, and replaces them in the background when this repository has newer
-ones, so a new version is in use on the next page you open (within about 20 minutes of
-a release). The trade-off: whatever is on this repository's main branch runs on every
-site you visit without you confirming it first. Some sites with a strict security policy
-may refuse to run fetched code; the gallery is then simply absent there.
-
-**Prefer to confirm every update yourself?** Install
-[WebGalleryCore.user.js](https://raw.githubusercontent.com/realteamnet/RedditGallery/main/WebGalleryCore.user.js)
-(any site) or
-[RedditGallery.user.js](https://raw.githubusercontent.com/realteamnet/RedditGallery/main/RedditGallery.user.js)
-(Reddit only) instead. Those are ordinary userscripts: they show a small "update
-available" bar and your userscript manager installs the new version. Install only one;
-if more are installed, only one runs on a page.
+Both are ordinary userscripts. Your userscript manager updates them on its own schedule,
+and the script shows a small "update available" bar when this repository has a newer
+version. Install only one; if both are installed, only one runs on a page.
 
 ## Install
 
@@ -47,8 +34,8 @@ if more are installed, only one runs on a page.
 
    Tampermonkey and Greasemonkey should also work.
 2. Click **[Install Web Gallery View](https://raw.githubusercontent.com/realteamnet/RedditGallery/main/WebGalleryView.user.js)**
-   (or one of the other files above): the manager opens its install page.
-3. Confirm. From then on the gallery keeps itself up to date.
+   (or the Reddit-only file above): the manager opens its install page.
+3. Confirm.
 
 ## Use
 

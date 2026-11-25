@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Gallery View
 // @namespace    https://violentmonkey.github.io/
-// @version      3.4.0
+// @version      3.5.0
 // @description  Show any Reddit page (subreddit, user, search, custom feed / multireddit, front page) as a media gallery with infinite scroll and a lightbox.
 // @icon         https://www.redditstatic.com/shreddit/assets/favicon/192x192.png
 // @homepageURL  https://github.com/realteamnet/RedditGallery
@@ -16,11 +16,12 @@
 // @grant        GM_xmlhttpRequest
 // @grant        GM_info
 // @connect      raw.githubusercontent.com
+// @connect      reddit.com
 // @connect      v.redd.it
 // @connect      api.redgifs.com
 // @connect      media.redgifs.com
 // ==/UserScript==
-// Generated from WebGalleryCore.user.js (base + reddit.com plugin). Edit that file, not this one.
+// Generated from WebGalleryView.user.js (base + reddit.com plugin). Edit that file, not this one.
 
 (() => {
   'use strict';
@@ -810,6 +811,22 @@ button.chip{font-weight:500}
         ontimeout: () => reject(new Error('timed out')),
       });
     });
+  }
+
+  // Reddit's own .json, read with the session. Reddit may refuse the page's request (403)
+  // and still answer the same one made by the userscript manager, which carries the
+  // cookies but not the page's fetch headers. Once that happens the page is not asked again.
+  let viaGM = false;
+  async function redditGet(url) {
+    let res = null;
+    if (!viaGM) {
+      try { res = await fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } }); } catch { /* try the other way */ }
+      if (res && res.status !== 403) return res;
+    }
+    let r;
+    try { r = await gmGet(url, { Accept: 'application/json' }); } catch (e) { if (res) return res; throw e; }
+    if (r.status === 200) viaGM = true;
+    return { ok: r.status >= 200 && r.status < 300, status: r.status, json: async () => JSON.parse(r.text) };
   }
 
   // The DASH manifest names the real audio file; null when it cannot be read, [] when it has no audio.
@@ -2212,7 +2229,7 @@ button.chip{font-weight:500}
     const gen = S.gen;
     setStatus('Loading…');
     try {
-      const res = await fetch(jsonUrl(), { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+      const res = await redditGet(jsonUrl());
       if (!res.ok) {
         throw new Error(
           res.status === 429 ? 'Reddit is rate limiting requests (429). Wait a moment, then click here to retry.' :
@@ -2282,7 +2299,7 @@ button.chip{font-weight:500}
   async function getModhash() {
     if (modhash !== null) return modhash;
     try {
-      const r = await fetch(location.origin + '/api/me.json?raw_json=1', { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+      const r = await redditGet(location.origin + '/api/me.json?raw_json=1');
       const j = await r.json();
       modhash = j?.data?.modhash || '';
     } catch { modhash = ''; }
@@ -2500,8 +2517,7 @@ button.chip{font-weight:500}
     if (cmtCache.has(key)) { cmtList.replaceChildren(cmtCache.get(key)); return; }
     cmtList.replaceChildren(el('div', 'cnote', 'Loading comments…'));
     try {
-      const res = await fetch(`${location.origin}${post.permalink.replace(/\/?$/, '/')}.json?raw_json=1&limit=200&depth=8&sort=${sort}`,
-        { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+      const res = await redditGet(`${location.origin}${post.permalink.replace(/\/?$/, '/')}.json?raw_json=1&limit=200&depth=8&sort=${sort}`);
       if (!res.ok) throw new Error(res.status === 429 ? 'Reddit is rate limiting requests. Wait a moment.' : `Reddit returned HTTP ${res.status}.`);
       const json = await res.json();
       if (cmtPost !== post || cfg.cmtSort !== sort) return;      // moved on while this was loading
@@ -2640,5 +2656,7 @@ button.chip{font-weight:500}
     const text = `Version ${info.script?.version || '?'}` + (info.loader ? ` (loader ${info.loader})` : '');
     menu(text, () => alert(`Web Gallery View\n${text}\nhttps://github.com/realteamnet/RedditGallery`));
   }
+  // Left behind by the 3.0-3.4 loader, which kept a copy of the whole script in storage.
+  if (store.get('loader.code', '')) { store.set('loader.code', ''); store.set('shim2', ''); }
   if (REDDIT) { start(); return; }
 })();
