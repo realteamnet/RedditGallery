@@ -16,6 +16,15 @@ Greasemonkey) is loaded.
 is the Reddit-only edition: the same code and the same version, running on reddit.com and nowhere else.
 Install one or the other. If both are installed, only one of them runs on Reddit.
 
+**Want updates with no prompt at all?** Install
+[WebGalleryLoader.user.js](https://raw.githubusercontent.com/realteamnet/RedditGallery/main/WebGalleryLoader.user.js)
+*instead of* Web Gallery View. It is a small loader that runs the latest
+[WebGalleryView.user.js](WebGalleryView.user.js) straight from this repository, so a new
+version is in use on the next page you open. The trade-off: whatever is on this
+repository's main branch runs on every site you visit without you confirming it first.
+Some sites with a strict security policy may refuse to run fetched code; the gallery is
+then simply absent there.
+
 ## Install
 
 1. Install Violentmonkey for your browser:
@@ -52,7 +61,8 @@ Install one or the other. If both are installed, only one of them runs on Reddit
 - **Lightbox** — wheel, arrow keys or a sideways swipe to step through items, swipe up
   to go back to the grid, Ctrl+wheel / pinch to zoom (up to 10×) and drag to pan, seek
   bar, loop, fit/fill, fullscreen.
-- Checks for a newer version (at most every 15 minutes) and offers it.
+- Checks for a newer version (at most every 15 minutes) and offers it in a small bar at
+  the top of the page. Nothing is opened or installed until you choose **Update**.
 
 ### On any site (best effort)
 
