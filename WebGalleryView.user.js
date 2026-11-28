@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Web Gallery View
 // @namespace    https://violentmonkey.github.io/
-// @version      3.6.1
-// @description  Show a page's pictures, GIFs and videos as a media gallery with infinite scroll and a lightbox. Works best-effort on any site with a media grid; Reddit has full support (feeds, sorting, votes, comments).
+// @version      3.7.0
+// @description  Show a page's pictures, GIFs and videos as a media gallery with infinite scroll and a lightbox. Works best-effort on any site you enable it on (script menu); Reddit has full support (feeds, sorting, votes, comments).
 // @homepageURL  https://github.com/realteamnet/RedditGallery
 // @downloadURL  https://raw.githubusercontent.com/realteamnet/RedditGallery/main/WebGalleryView.user.js
 // @updateURL    https://raw.githubusercontent.com/realteamnet/RedditGallery/main/WebGalleryView.user.js
@@ -52,6 +52,26 @@
     feeds: store.get('feeds', {}),           // { name: "r/pics+aww" | "user/me/m/myfeed" }
     cmtSort: store.get('cmtSort', 'confidence'),   // comment order in the comments panel ("confidence" = best)
   };
+  // What "Export settings" writes and "Import settings" accepts. Short-lived values
+  // (update check, Redgifs token) are left out on purpose.
+  const SAVED = [...Object.keys(cfg), 'galleryPages', 'fabPos', 'sites'];
+
+  /* ------------------------------------------------------------------ *
+   *  Sites. The script does nothing on a site until it is switched on there
+   *  (the script manager's menu). Reddit is on unless it was switched off.
+   * ------------------------------------------------------------------ */
+  const SITE = REDDIT ? 'reddit.com' : location.hostname.replace(/^www\./i, '').toLowerCase();
+  // Before 3.7 every site was on: keep the ones that have a remembered gallery page.
+  if (store.get('sites', null) === null) {
+    const on = {};
+    for (const k of store.get('galleryPages', [])) {
+      const h = String(k).split('/')[0].replace(/:\d+$/, '').replace(/^www\./i, '').toLowerCase();
+      if (h.includes('.')) on[h] = true;
+    }
+    store.set('sites', on);
+  }
+  const siteOn = () => { const v = store.get('sites', {})?.[SITE]; return v === undefined ? REDDIT : !!v; };
+  const JUST_ON = 'wg:just-on';                      // sessionStorage: the site was switched on a moment ago
 
   /* ------------------------------------------------------------------ *
    *  Per-tab memory of which pages are in gallery mode.
@@ -121,6 +141,7 @@
    *  gallery is started (see the end of the file).
    * ------------------------------------------------------------------ */
   const fabOff = () => store.get('fabOff', []).includes(location.host);
+  SAVED.push('fabOff');
 
   const IMG_EXT = /\.(jpe?g|png|gif|webp|avif|bmp)(?:[?#]|$)/i, VID_EXT = /\.(mp4|webm|mov|m4v)(?:[?#]|$)/i;
   const GIF_EXT = /\.gif(?:[?#]|$)/i;
@@ -2988,8 +3009,77 @@ button.chip{font-weight:500}
   let gallery = null;
   const start = () => gallery || (gallery = main());
   const menu = (label, fn) => { try { GM_registerMenuCommand(label, fn); } catch { /* no menu here */ } };
-  menu('Open gallery (Alt+G)', () => start().toggle());
-  menu('Check for an update now', () => start().checkUpdate(true));
+  const enabled = siteOn();
+  if (enabled) {
+    menu('Open gallery (Alt+G)', () => start().toggle());
+    menu('Check for an update now', () => start().checkUpdate(true));
+  }
+  // The page is reloaded so that the script starts (or is gone) cleanly and the menu shows the new state.
+  menu(`${enabled ? 'Disable' : 'Enable'} on ${SITE}`, () => {
+    store.set('sites', { ...store.get('sites', {}), [SITE]: !enabled });
+    try { enabled ? sessionStorage.removeItem(JUST_ON) : sessionStorage.setItem(JUST_ON, '1'); } catch { /* ignore */ }
+    location.reload();
+  });
+
+  // Export / import. A menu command carries no user activation, which a file chooser needs,
+  // so the two actions are real buttons in a small panel. Styles are set through the
+  // CSSOM and there is no HTML string, so a strict CSP does not get in the way.
+  function settingsPanel() {
+    if (document.getElementById('wg-settings')) return;
+    const mk = (tag, css, text) => { const n = document.createElement(tag); n.style.cssText = css; if (text) n.textContent = text; return n; };
+    const host = mk('div', 'all:initial;position:fixed;inset:0;z-index:2147483647');
+    host.id = 'wg-settings';
+    const root = host.attachShadow({ mode: 'open' });
+    const back = mk('div', 'position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;font:14px/1.45 system-ui,sans-serif');
+    const box = mk('div', 'background:#1b1c1f;color:#f3f1ec;border:1px solid #33353b;border-radius:12px;padding:18px 20px;width:min(360px,calc(100vw - 32px));box-shadow:0 12px 40px rgba(0,0,0,.5)');
+    const BTN = 'display:block;width:100%;margin-top:10px;padding:9px 12px;border-radius:8px;border:1px solid #3a3d44;background:#26282d;color:inherit;font:inherit;cursor:pointer';
+    const note = mk('div', 'margin-top:12px;min-height:1.45em;color:#b9b6ae');
+    const out = mk('button', BTN, 'Export settings to a file'), inp = mk('button', BTN, 'Import settings from a file…'), done = mk('button', BTN, 'Close');
+    const close = () => host.remove();
+    out.onclick = () => {
+      const settings = {};
+      for (const k of SAVED) { const v = store.get(k, undefined); if (v !== undefined) settings[k] = v; }
+      const info = typeof GM_info !== 'undefined' ? GM_info : {};
+      const file = { app: 'Web Gallery View', version: info.script?.version || '', exported: new Date().toISOString(), settings };
+      const a = mk('a', 'display:none');
+      a.href = URL.createObjectURL(new Blob([JSON.stringify(file, null, 2)], { type: 'application/json' }));
+      a.download = `web-gallery-view-settings-${file.exported.slice(0, 10)}.json`;
+      root.append(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 10000);
+      note.textContent = `Exported ${Object.keys(settings).length} settings.`;
+    };
+    inp.onclick = () => {
+      const pick = mk('input', 'display:none');
+      pick.type = 'file';
+      pick.accept = '.json,application/json';
+      pick.onchange = async () => {
+        try {
+          const file = JSON.parse(await pick.files[0].text());
+          const s = file?.settings;
+          if (file?.app !== 'Web Gallery View' || !s || typeof s !== 'object' || Array.isArray(s)) throw new Error('not a settings file');
+          const keys = SAVED.filter((k) => k in s && s[k] !== null && typeof s[k] === typeof (k in cfg ? cfg[k] : s[k]));
+          if (!keys.length) throw new Error('no settings in it');
+          for (const k of keys) store.set(k, s[k]);
+          note.textContent = `Imported ${keys.length} settings. Reloading…`;
+          setTimeout(() => location.reload(), 900);
+        } catch (e) {
+          note.textContent = 'Could not import that file: ' + (e.message || e);
+        }
+      };
+      root.append(pick);
+      pick.click();
+    };
+    done.onclick = close;
+    back.onclick = (e) => { if (e.target === back) close(); };
+    box.append(mk('div', 'font-weight:600;font-size:16px', 'Web Gallery View settings'),
+      mk('div', 'margin-top:4px;color:#b9b6ae', 'Options, saved feeds, enabled sites and remembered gallery pages. Importing replaces the settings found in the file.'),
+      out, inp, done, note);
+    back.append(box);
+    root.append(back);
+    document.documentElement.append(host);
+  }
+  menu('Export / import settings', settingsPanel);
   {
     const info = typeof GM_info !== 'undefined' ? GM_info : {};
     const text = `Version ${info.script?.version || '?'}` + (info.loader ? ` (loader ${info.loader})` : '');
@@ -2997,8 +3087,11 @@ button.chip{font-weight:500}
   }
   // Left behind by the 3.0-3.4 loader, which kept a copy of the whole script in storage.
   if (store.get('loader.code', '')) { store.set('loader.code', ''); store.set('shim2', ''); }
+  if (!enabled) return;
   if (REDDIT) { start(); return; }
   // <web>
+  let justOn = false;
+  try { justOn = sessionStorage.getItem(JUST_ON) === '1'; sessionStorage.removeItem(JUST_ON); } catch { /* ignore */ }
 
   menu('Show / hide the Gallery button on this site', () => {
     const list = store.get('fabOff', []).filter((h) => h !== location.host);
@@ -3007,7 +3100,8 @@ button.chip{font-weight:500}
     gallery?.syncFab();
   });
   if (!document.body || !/html/i.test(document.contentType || 'html')) return;
-  if (pageMem.has(memKey())) { start(); return; }    // a remembered page: main opens it
+  // A remembered page: main opens it. Just switched on: show the button at once, grid or not.
+  if (pageMem.has(memKey()) || justOn) { start(); return; }
 
   document.addEventListener('keydown', (e) => {
     if (gallery || !(e.altKey && e.code === 'KeyG')) return;   // once it runs, the gallery has its own listener

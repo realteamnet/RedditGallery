@@ -3,7 +3,8 @@
 A userscript that turns a page's pictures, GIFs and videos into a masonry media gallery
 with infinite scroll and a lightbox.
 
-- **Any site** with a grid of media: best effort, read straight from the page.
+- **Any site** with a grid of media that you switch it on for: best effort, read straight
+  from the page.
 - **Reddit**: full support — any listing (subreddit, user, search, multireddit, front
   page), sorting, saved feeds, votes, comments.
 
@@ -16,7 +17,7 @@ Greasemonkey) is loaded.
 
 | File | What it is |
 | --- | --- |
-| [WebGalleryView.user.js](https://raw.githubusercontent.com/realteamnet/RedditGallery/main/WebGalleryView.user.js) | **Install this.** The gallery for every site, Reddit included. |
+| [WebGalleryView.user.js](https://raw.githubusercontent.com/realteamnet/RedditGallery/main/WebGalleryView.user.js) | **Install this.** The gallery for Reddit and for any site you enable it on. |
 | [RedditGallery.user.js](https://raw.githubusercontent.com/realteamnet/RedditGallery/main/RedditGallery.user.js) | Reddit-only edition: the same gallery code, running on reddit.com and nowhere else. |
 
 Both are ordinary userscripts. Your userscript manager updates them on its own schedule,
@@ -42,9 +43,15 @@ version. Install only one; if both are installed, only one runs on a page.
 - Click the **Gallery** button docked at the top centre of the page, or press **Alt+G**.
   Drag the button along the top edge, or off it to anywhere on the page; it stays where
   you put it. Drag it back to the top to dock it again.
-- **On Reddit** the button is on every page. **On any other site** it appears by itself
-  on pages where a grid of media is found, and the userscript menu can hide it for a
-  site.
+- **Reddit is switched on from the start. Every other site is off** until you choose
+  **Enable on (site)** in the userscript manager's menu for this script (the page
+  reloads). **Disable on (site)** in the same menu switches a site off again, Reddit
+  included. On a site that is off the script does nothing at all.
+- On Reddit the button is on every page. On other enabled sites it appears by itself on
+  pages where a grid of media is found, and the userscript menu can hide it for a site.
+- **Export / import settings** in the same menu saves your options, saved feeds, enabled
+  sites and remembered gallery pages to a .json file, and reads such a file back in, for
+  moving to another browser or computer.
 - The **×** at the top right (or Esc) leaves the gallery and returns to the page where
   you left off. The arrow next to it hides or shows the options; so does a double click
   on the bar. Hidden, the bar is a single line with the title, the sort and media-type
@@ -66,9 +73,8 @@ version. Install only one; if both are installed, only one runs on a page.
   position ("2 / 5") stays inside the post's own pictures, a double arrow moves to another
   post. On a video a quick flick steps and a slower slide scrubs through it. Also Ctrl+wheel / pinch to zoom (up to 10×) and drag to pan, seek
   bar, loop, fit/fill, fullscreen.
-- Looks for a newer version at most every 15 minutes. Web Gallery View takes it by
-  itself; the other two files offer it in a small bar at the top of the page, and nothing
-  is installed until you choose **Update**.
+- Looks for a newer version at most every 15 minutes and offers it in a small bar at the
+  top of the page; nothing is installed until you choose **Update**.
 
 ### On any site (best effort)
 
